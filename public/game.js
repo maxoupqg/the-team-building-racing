@@ -147,6 +147,109 @@ let powerUpsEnabled       = false;
 let teamMode              = false;
 let currentTeams          = [];  // [{ id, name, color, playerIds, members }]
 
+// ── Sound engine (Web Audio API — no files) ───────────────────────────────────
+let _audioCtx = null;
+
+function _audio() {
+  if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (_audioCtx.state === 'suspended') _audioCtx.resume();
+  return _audioCtx;
+}
+
+function _tone(freq, type, duration, peak = 0.3, delay = 0) {
+  try {
+    const ctx = _audio();
+    const osc  = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, ctx.currentTime + delay);
+    gain.gain.setValueAtTime(0, ctx.currentTime + delay);
+    gain.gain.linearRampToValueAtTime(peak, ctx.currentTime + delay + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + duration);
+    osc.start(ctx.currentTime + delay);
+    osc.stop(ctx.currentTime + delay + duration + 0.05);
+  } catch (_) {}
+}
+
+function _sweep(freqStart, freqEnd, type, duration, peak = 0.25) {
+  try {
+    const ctx = _audio();
+    const osc  = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = type;
+    osc.frequency.setValueAtTime(freqStart, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(freqEnd, ctx.currentTime + duration);
+    gain.gain.setValueAtTime(peak, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + duration + 0.05);
+  } catch (_) {}
+}
+
+function _noise(duration, filterFreq = 800, peak = 0.2) {
+  try {
+    const ctx    = _audio();
+    const buffer = ctx.createBuffer(1, ctx.sampleRate * duration, ctx.sampleRate);
+    const data   = buffer.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    const src    = ctx.createBufferSource();
+    src.buffer   = buffer;
+    const filter = ctx.createBiquadFilter();
+    filter.type  = 'bandpass';
+    filter.frequency.value = filterFreq;
+    const gain   = ctx.createGain();
+    src.connect(filter); filter.connect(gain); gain.connect(ctx.destination);
+    gain.gain.setValueAtTime(peak, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+    src.start(); src.stop(ctx.currentTime + duration + 0.05);
+  } catch (_) {}
+}
+
+function soundCountdown(n) {
+  if (n > 0) {
+    _tone(440 + (3 - n) * 110, 'sine', 0.12, 0.35);
+  } else {
+    // GO — accord do-mi-sol
+    _tone(523, 'sine', 0.5, 0.3, 0);
+    _tone(659, 'sine', 0.5, 0.2, 0.04);
+    _tone(784, 'sine', 0.6, 0.25, 0.08);
+  }
+}
+
+function soundJump()   { _sweep(220, 660, 'sine', 0.09, 0.2); }
+function soundSlide()  { _sweep(500, 180, 'sine', 0.11, 0.18); }
+function soundAttack() { _noise(0.06, 600, 0.3); _tone(120, 'square', 0.06, 0.15); }
+
+function soundComboTick(combo) {
+  const freq = Math.min(400 + combo * 35, 1200);
+  _tone(freq, 'sine', 0.05, 0.18);
+}
+
+function soundComboMiss() {
+  _tone(90, 'square', 0.18, 0.22);
+  _sweep(200, 80, 'sawtooth', 0.15, 0.1);
+}
+
+function soundPowerUp() {
+  // Arpège montant do-mi-sol
+  _tone(523, 'sine', 0.08, 0.25, 0);
+  _tone(659, 'sine', 0.08, 0.25, 0.07);
+  _tone(784, 'sine', 0.18, 0.3,  0.14);
+}
+
+function soundFinishMe() {
+  _tone(523, 'sine', 0.6, 0.3,  0);
+  _tone(659, 'sine', 0.6, 0.25, 0.06);
+  _tone(784, 'sine', 0.8, 0.3,  0.12);
+  _tone(1046,'sine', 0.9, 0.2,  0.22);
+}
+
+function soundFinishOther() {
+  _tone(880, 'sine', 0.25, 0.15);
+}
+
 // ── DOM helpers ───────────────────────────────────────────────────────────────
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach(el => el.classList.add('hidden'));
@@ -460,6 +563,9 @@ document.addEventListener('keydown', e => {
   if (!input[action]) {
     input[action] = true;
     emitInput();
+    if (action === 'jump')   soundJump();
+    if (action === 'slide')  soundSlide();
+    if (action === 'attack') soundAttack();
   }
 });
 
@@ -514,6 +620,7 @@ socket.on('lobby_update', (data) => {
 });
 
 socket.on('countdown', (data) => {
+  soundCountdown(data.count);
   showCountdown(data.count);
 });
 
@@ -562,6 +669,7 @@ socket.on('race_start', (data) => {
   myPickedUpPowerUps   = new Set();
 
   // Show countdown GO then start rendering
+  soundCountdown(0);
   showCountdown(0);
   showScreen('screen-race');
   gameState = 'racing';
@@ -581,6 +689,9 @@ socket.on('game_state', (data) => {
   prevServerTime = lastServerTime;
   lastServerTime = performance.now();
 
+  // Snapshot my combo before update (for sound detection)
+  const myPrevCombo = playerStates.get(myPlayerId)?.combo ?? 0;
+
   // Parse compact array rows: [idx, x, y, stateCode, combo, maxCombo, speed, progress×10000, boostTimer, shielded, slowTimer]
   for (const row of data.p) {
     const id = playerIndexMap.get(row[0]);
@@ -598,6 +709,11 @@ socket.on('game_state', (data) => {
     p.shielded   = row[9] === 1;
     p.slowTimer  = row[10];
   }
+
+  // Combo sounds for my player
+  const myNowCombo = playerStates.get(myPlayerId)?.combo ?? 0;
+  if (myNowCombo > myPrevCombo)          soundComboTick(myNowCombo);
+  else if (myPrevCombo > 0 && myNowCombo === 0) soundComboMiss();
 
   checkCommentatorEvents([...playerStates.values()]);
 });
@@ -635,6 +751,8 @@ function addCommentary(text, color) {
 socket.on('player_finished', (data) => {
   const p = playerStates.get(data.playerId);
   if (p) { p.finished = true; p.progress = 1; }
+  if (data.playerId === myPlayerId) soundFinishMe();
+  else soundFinishOther();
   const name = p ? p.name : data.playerId;
   const emoji = data.position === 1 ? '🥇' : data.position === 2 ? '🥈' : data.position === 3 ? '🥉' : `#${data.position}`;
   finishNotifications.push({
@@ -653,6 +771,7 @@ socket.on('race_results', (data) => {
 socket.on('powerup_taken', (data) => {
   if (data.playerId === myPlayerId) {
     myPickedUpPowerUps.add(data.puId);
+    soundPowerUp();
     const labels = { boost: '🚀 Boost !', shield: '🛡️ Bouclier !', bomb: '💣 Bombe lancée !' };
     finishNotifications.push({
       text:   labels[data.type] || '⭐ Power-up !',
