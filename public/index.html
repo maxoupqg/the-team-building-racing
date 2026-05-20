@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Team Racing</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ── Welcome screen ─────────────────────────────────────────────────── -->
+  <div id="screen-welcome" class="screen">
+    <div class="welcome-card">
+      <h1 class="game-title">🏃 The Team Racing</h1>
+      <p class="subtitle">Course multijoueur en temps réel</p>
+
+      <div class="form-group">
+        <label for="input-name">Pseudo</label>
+        <input id="input-name" type="text" maxlength="16" placeholder="Votre pseudo…" autocomplete="off" />
+      </div>
+
+      <div class="form-group">
+        <label>Couleur</label>
+        <div id="color-picker" class="color-picker"></div>
+      </div>
+
+      <div class="welcome-buttons">
+        <button id="btn-create" class="btn btn-primary">Créer une partie</button>
+      </div>
+
+      <div class="divider"><span>ou</span></div>
+
+      <div class="join-section">
+        <div class="form-group">
+          <label for="input-code">Code de salle</label>
+          <input id="input-code" type="text" maxlength="4" placeholder="ABCD" autocomplete="off" class="code-input" />
+        </div>
+        <button id="btn-join" class="btn btn-secondary">Rejoindre</button>
+      </div>
+
+      <div id="welcome-error" class="error-msg hidden"></div>
+    </div>
+  </div>
+
+  <!-- ── Lobby screen ────────────────────────────────────────────────────── -->
+  <div id="screen-lobby" class="screen hidden">
+    <div class="lobby-card">
+      <div class="room-code-section">
+        <span class="room-code-label">Code de la salle</span>
+        <div class="room-code-display">
+          <span id="room-code-text">----</span>
+          <button id="btn-copy-code" class="btn-icon" title="Copier">📋</button>
+        </div>
+      </div>
+
+      <div class="lobby-players-section">
+        <h3>Joueurs <span id="player-count">(0)</span></h3>
+        <div id="player-list" class="player-list"></div>
+      </div>
+
+      <div id="standings-section" class="standings-section hidden">
+        <h3>Classement</h3>
+        <table id="standings-table" class="standings-table">
+          <thead>
+            <tr><th>#</th><th>Joueur</th><th>Points</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div id="lobby-host-controls" class="lobby-controls hidden">
+        <button id="btn-start-race" class="btn btn-primary btn-large">🏁 Lancer la course</button>
+      </div>
+      <div id="lobby-waiting-msg" class="waiting-msg hidden">
+        En attente du chef de partie…
+      </div>
+
+      <div id="lobby-error" class="error-msg hidden"></div>
+    </div>
+  </div>
+
+  <!-- ── Race screen ─────────────────────────────────────────────────────── -->
+  <div id="screen-race" class="screen hidden">
+    <div class="race-wrapper">
+      <canvas id="gameCanvas" width="480" height="640"></canvas>
+    </div>
+  </div>
+
+  <!-- ── Results screen ─────────────────────────────────────────────────── -->
+  <div id="screen-results" class="screen hidden">
+    <div class="results-card">
+      <h2 id="results-race-number">Course #1</h2>
+
+      <div id="podium" class="podium"></div>
+
+      <table id="results-table" class="results-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Joueur</th>
+            <th>Temps</th>
+            <th>Combo</th>
+            <th>Points</th>
+            <th>Total</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <div class="results-standings">
+        <h3>Classement général</h3>
+        <table id="results-standings-table" class="standings-table">
+          <thead>
+            <tr><th>#</th><th>Joueur</th><th>Points</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div id="results-host-controls" class="results-controls hidden">
+        <button id="btn-next-race" class="btn btn-primary">Course suivante</button>
+        <button id="btn-end-session" class="btn btn-danger">Terminer la session</button>
+      </div>
+      <div id="results-waiting-msg" class="waiting-msg hidden">
+        En attente du chef de partie…
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Session end screen ─────────────────────────────────────────────── -->
+  <div id="screen-session-end" class="screen hidden">
+    <div class="results-card">
+      <h2>🏆 Fin de session</h2>
+      <div class="results-standings">
+        <h3>Classement final</h3>
+        <table id="session-end-table" class="standings-table">
+          <thead>
+            <tr><th>#</th><th>Joueur</th><th>Points</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <button id="btn-restart" class="btn btn-primary">Nouvelle partie</button>
+    </div>
+  </div>
+
+  <!-- ── Countdown overlay ───────────────────────────────────────────────── -->
+  <div id="countdown-overlay" class="countdown-overlay hidden">
+    <div id="countdown-text" class="countdown-text">3</div>
+  </div>
+
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
