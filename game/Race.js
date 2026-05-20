@@ -1,6 +1,7 @@
 'use strict';
 
 const { generateObstacles } = require('./ObstacleGenerator');
+const { generatePowerUps }  = require('./PowerUpGenerator');
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const TRACK_LENGTH          = 50000;
@@ -18,6 +19,12 @@ const OBSTACLE_WINDOW_START = 500;   // must cover full canvas look-ahead (420px
 const OBSTACLE_WINDOW_END   = 150;   // px of grace after obstacle center
 const RACE_TIMEOUT_MS       = 5 * 60 * 1000; // 5 minutes
 
+const POWERUP_RADIUS = 40;    // pickup collision half-height
+const BOOST_MULT     = 1.6;   // +60% speed
+const BOOST_DUR      = 6000;  // ms
+const SLOW_MULT      = 0.65;  // -35% speed
+const SLOW_DUR       = 4000;  // ms
+
 class Race {
   /**
    * @param {number}   seed
@@ -25,8 +32,9 @@ class Race {
    * @param {object}   io          — Socket.io server instance
    * @param {string}   roomCode
    * @param {Function} onFinished  — called when race ends, with finishOrder array
+   * @param {object}   options     — { powerUpsEnabled }
    */
-  constructor(seed, playerList, io, roomCode, onFinished) {
+  constructor(seed, playerList, io, roomCode, onFinished, options = {}) {
     this.seed      = seed;
     this.io        = io;
     this.roomCode  = roomCode;
@@ -34,6 +42,7 @@ class Race {
     this.startTime = Date.now();
 
     this.obstacles = generateObstacles(seed, TRACK_LENGTH);
+    this.powerUps  = options.powerUpsEnabled ? generatePowerUps(TRACK_LENGTH) : [];
 
     // Build players map
     this.players = new Map();
@@ -55,6 +64,12 @@ class Race {
         finished:   false,
         finishTime: null,
         progress:   0,
+        // power-up state
+        boostTimer:        0,
+        shielded:          false,
+        slowTimer:         0,
+        processedPowerUps: new Set(),
+        powerUpCounts:     { boost: 0, shield: 0, bomb: 0 },
       });
     }
 
@@ -74,6 +89,7 @@ class Race {
     this.io.to(this.roomCode).emit('race_start', {
       seed:        this.seed,
       obstacles:   this.obstacles,
+      powerUps:    this.powerUps,
       trackLength: TRACK_LENGTH,
       players:     [...this.players.values()].map(p => ({
         id:    p.id,
@@ -140,15 +156,18 @@ class Race {
     // Broadcast game state
     const state = {
       players: [...this.players.values()].map(p => ({
-        id:       p.id,
-        x:        p.x,
-        y:        p.y,
-        state:    p.state,
-        combo:    p.combo,
-        maxCombo: p.maxCombo,
-        speed:    Math.round(p.speed),
-        finished: p.finished,
-        progress: p.progress,
+        id:         p.id,
+        x:          p.x,
+        y:          p.y,
+        state:      p.state,
+        combo:      p.combo,
+        maxCombo:   p.maxCombo,
+        speed:      Math.round(p.speed),
+        finished:   p.finished,
+        progress:   p.progress,
+        boostTimer: Math.round(p.boostTimer),
+        shielded:   p.shielded,
+        slowTimer:  Math.round(p.slowTimer),
       })),
       timestamp: Date.now(),
     };
@@ -192,13 +211,38 @@ class Race {
     const maxX = TRACK_WIDTH / 2 - 20;
     player.x = Math.max(-maxX, Math.min(maxX, player.x + dx * DT));
 
-    // 4. Move Y — rubber-band (up to +30% when far behind) + unlimited combo bonus
+    // 4. Move Y — rubber-band + combo bonus + power-up modifiers
     const gap = Math.max(0, leaderProgress - player.progress);
     const rubberBand = 1 + Math.min(gap * 0.3, 0.3);
-    player.speed = BASE_SPEED * (1 + player.combo * COMBO_SPEED_BONUS) * rubberBand;
+
+    let powerMult = 1;
+    if (player.boostTimer > 0) {
+      powerMult *= BOOST_MULT;
+      player.boostTimer = Math.max(0, player.boostTimer - DT * 1000);
+    }
+    if (player.slowTimer > 0) {
+      powerMult *= SLOW_MULT;
+      player.slowTimer = Math.max(0, player.slowTimer - DT * 1000);
+    }
+
+    player.speed = BASE_SPEED * (1 + player.combo * COMBO_SPEED_BONUS) * rubberBand * powerMult;
     player.y += player.speed * DT;
 
-    // 5. Obstacle window logic (obstacles are sorted ascending by y)
+    // 5. Power-up pickup (each player independent, only if visible for this player)
+    for (const pu of this.powerUps) {
+      if (player.processedPowerUps.has(pu.id)) continue;
+      if (!this._isPowerUpVisibleFor(player, pu)) continue;
+      if (Math.abs(player.y - pu.y) < POWERUP_RADIUS) {
+        player.processedPowerUps.add(pu.id);
+        const type = this._powerUpTypeForPlayer(player);
+        this._applyPowerUp(player, type);
+        player.powerUpCounts[type] = (player.powerUpCounts[type] || 0) + 1;
+        console.log(`[POWERUP] ${player.name} (rank ${this._rankOf(player)}) picked up ${type}`);
+        this.io.to(this.roomCode).emit('powerup_taken', { puId: pu.id, playerId: player.id, type });
+      }
+    }
+
+    // 6. Obstacle window logic (obstacles are sorted ascending by y)
     for (const obs of this.obstacles) {
       if (player.processedObstacles.has(obs.id)) continue;
 
@@ -228,14 +272,20 @@ class Race {
           player.combo = Math.min(player.combo + 1, 99);
           if (player.combo > player.maxCombo) player.maxCombo = player.combo;
         } else {
-          player.combo = 0;
+          // Shield absorbs the miss
+          if (player.shielded) {
+            player.shielded = false;
+            console.log(`[SHIELD] ${player.name} combo saved`);
+          } else {
+            player.combo = 0;
+          }
         }
         player.pendingObstacles.delete(obs.id);
         player.processedObstacles.add(obs.id);
       }
     }
 
-    // 6. Check finish line
+    // 7. Check finish line
     if (player.y >= TRACK_LENGTH) {
       player.y = TRACK_LENGTH;
       player.finished = true;
@@ -250,8 +300,60 @@ class Race {
       });
     }
 
-    // 7. Progress
+    // 8. Progress
     player.progress = player.y / TRACK_LENGTH;
+  }
+
+  _applyPowerUp(player, type) {
+    switch (type) {
+      case 'boost':
+        player.boostTimer = BOOST_DUR;
+        break;
+      case 'shield':
+        player.shielded = true;
+        break;
+      case 'bomb':
+        for (const [id, p] of this.players) {
+          if (id !== player.id && !p.finished) {
+            p.slowTimer = Math.max(p.slowTimer, SLOW_DUR);
+          }
+        }
+        break;
+    }
+  }
+
+  _isPowerUpVisibleFor(player, pu) {
+    const active = [...this.players.values()].filter(p => !p.finished);
+    const total  = active.length;
+    if (total <= 1) return true;
+    const rank      = active.sort((a, b) => b.progress - a.progress).findIndex(p => p.id === player.id) + 1;
+    const relPos    = (rank - 1) / (total - 1);
+    const threshold = Math.round((0.3 + relPos * 0.7) * 10);
+    return (pu.id % 10) < threshold;
+  }
+
+  _rankOf(player) {
+    const active = [...this.players.values()].filter(p => !p.finished);
+    return active.sort((a, b) => b.progress - a.progress).findIndex(p => p.id === player.id) + 1;
+  }
+
+  _powerUpTypeForPlayer(player) {
+    const active = [...this.players.values()].filter(p => !p.finished);
+    const total  = active.length;
+    if (total <= 1) return 'boost';
+    const rank   = active.sort((a, b) => b.progress - a.progress).findIndex(p => p.id === player.id) + 1;
+    const relPos = (rank - 1) / (total - 1); // 0 = premier, 1 = dernier
+
+    if (relPos < 0.25) {
+      return 'bomb';
+    } else if (relPos < 0.5) {
+      return Math.random() < 0.5 ? 'shield' : 'bomb';
+    } else {
+      const r = Math.random();
+      if (r < 0.60) return 'boost';
+      if (r < 0.85) return 'shield';
+      return 'bomb';
+    }
   }
 
   _correctActionFor(type) {

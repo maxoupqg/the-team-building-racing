@@ -134,6 +134,15 @@ let commentatorMessages  = [];  // { text, color, expiry }
 let commentPrevLeaderId  = null;
 let commentPrevComboMap  = new Map();
 
+// Combo particles
+let comboParticles        = [];  // { x, y, vx, vy, life, color, size }
+let particlePrevCombo     = 0;
+
+// Power-ups
+let powerUps              = [];  // received from server via race_start
+let myPickedUpPowerUps    = new Set();  // ids picked up by THIS player
+let powerUpsEnabled       = false;
+
 // ── DOM helpers ───────────────────────────────────────────────────────────────
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach(el => el.classList.add('hidden'));
@@ -210,9 +219,20 @@ document.getElementById('btn-start-race').addEventListener('click', () => {
   socket.emit('start_race');
 });
 
-function renderLobby(players, hostId, standings, raceNum) {
+document.getElementById('btn-toggle-powerups').addEventListener('click', () => {
+  if (!isHost) return;
+  socket.emit('toggle_powerups');
+});
+
+function renderLobby(players, hostId, standings, raceNum, puEnabled) {
   isHost = hostId === myPlayerId;
   raceNumber = raceNum || 0;
+  powerUpsEnabled = !!puEnabled;
+
+  const btnPU = document.getElementById('btn-toggle-powerups');
+  btnPU.textContent  = powerUpsEnabled ? '⚡ Activés' : '⚡ Désactivés';
+  btnPU.classList.toggle('active', powerUpsEnabled);
+  btnPU.disabled = !isHost;
 
   document.getElementById('player-count').textContent = `(${players.length})`;
 
@@ -302,6 +322,7 @@ function renderResults(data) {
       <td><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${r.color};margin-right:6px;vertical-align:middle"></span>${escapeHtml(r.name)}</td>
       <td>${formatTime(r.finishTime)}</td>
       <td>${r.maxCombo > 0 ? `x${r.maxCombo}` : '-'}</td>
+      <td>${formatPowerUpCounts(r.powerUpCounts)}</td>
       <td>+${r.points}${r.comboBonus > 0 ? ` <span style="color:#f90">+${r.comboBonus}⚡</span>` : ''}${r.streakBonus > 0 ? ` <span style="color:#f44">+${r.streakBonus}🔥</span>` : ''}</td>
       <td><strong>${r.totalPoints}</strong></td>
     `;
@@ -391,7 +412,8 @@ socket.on('room_created', (data) => {
   myRoomCode  = data.code;
   isHost      = true;
   document.getElementById('room-code-text').textContent = data.code;
-  renderLobby(data.players, data.hostId, data.standings, data.raceNumber);
+  renderLobby(data.players, data.hostId, data.standings, data.raceNumber, data.powerUpsEnabled);
+  generateQRCode(data.code);
   showScreen('screen-lobby');
   gameState = 'lobby';
 });
@@ -400,14 +422,15 @@ socket.on('room_joined', (data) => {
   myPlayerId = data.playerId;
   myRoomCode = data.code;
   document.getElementById('room-code-text').textContent = data.code;
-  renderLobby(data.players, data.hostId, data.standings, data.raceNumber);
+  renderLobby(data.players, data.hostId, data.standings, data.raceNumber, data.powerUpsEnabled);
+  generateQRCode(data.code);
   showScreen('screen-lobby');
   gameState = 'lobby';
 });
 
 socket.on('lobby_update', (data) => {
   isHost = data.hostId === myPlayerId;
-  renderLobby(data.players, data.hostId, data.standings, data.raceNumber);
+  renderLobby(data.players, data.hostId, data.standings, data.raceNumber, data.powerUpsEnabled);
   if (gameState === 'results') {
     gameState = 'lobby';
     showScreen('screen-lobby');
@@ -454,6 +477,10 @@ socket.on('race_start', (data) => {
   floatingReactions    = [];
   shakeTimer           = 0;
   shakePrevCombo       = 0;
+  comboParticles       = [];
+  particlePrevCombo    = 0;
+  powerUps             = data.powerUps || [];
+  myPickedUpPowerUps   = new Set();
 
   // Show countdown GO then start rendering
   showCountdown(0);
@@ -527,6 +554,17 @@ socket.on('race_results', (data) => {
   if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
   raceNumber = data.raceNumber;
   renderResults(data);
+});
+
+socket.on('powerup_taken', (data) => {
+  if (data.playerId === myPlayerId) {
+    myPickedUpPowerUps.add(data.puId);
+    const labels = { boost: '🚀 Boost !', shield: '🛡️ Bouclier !', bomb: '💣 Bombe lancée !' };
+    finishNotifications.push({
+      text:   labels[data.type] || '⭐ Power-up !',
+      expiry: Date.now() + 2500,
+    });
+  }
 });
 
 socket.on('reaction', (data) => {
@@ -607,6 +645,12 @@ function renderFrame() {
   const curCombo = myInterp.combo || 0;
   if (shakePrevCombo > 0 && curCombo === 0) shakeTimer = 350;
   shakePrevCombo = curCombo;
+
+  // Detect combo increase → spawn particles
+  if (curCombo > particlePrevCombo) {
+    spawnComboParticles(TRACK_CENTER_X + (myInterp.x || 0), PLAYER_RENDER_Y, curCombo);
+  }
+  particlePrevCombo = curCombo;
   shakeTimer = Math.max(0, shakeTimer - 16);
 
   // Draw world with shake translate
@@ -622,9 +666,11 @@ function renderFrame() {
   drawTrack();
   drawLaneLines();
   drawObstacles(myInterp);
+  drawPowerUps(myInterp);
   drawFinishLine(myInterp);
   drawGhostPlayers(interp, myInterp);
   drawMyPlayer(myInterp);
+  drawComboParticles();
   ctx.restore();
 
   // Red flash overlay (outside shake so it's stable)
@@ -877,6 +923,18 @@ function drawMyPlayer(p) {
   }
   ctx.textBaseline = 'alphabetic';
 
+  // Active power-up badges (right of player)
+  const badges = [];
+  if (p.boostTimer > 0)  badges.push('🚀');
+  if (p.shielded)        badges.push('🛡️');
+  if (p.slowTimer  > 0)  badges.push('🐌');
+  if (badges.length > 0) {
+    ctx.font = '13px serif';
+    ctx.textBaseline = 'middle';
+    badges.forEach((b, i) => ctx.fillText(b, cx + 24 + i * 16, cy));
+    ctx.textBaseline = 'alphabetic';
+  }
+
   // Name above
   ctx.font = 'bold 13px Inter, system-ui, sans-serif';
   ctx.fillStyle = '#fff';
@@ -972,6 +1030,91 @@ function drawProgressBar(interp) {
     }
   });
 
+  ctx.restore();
+}
+
+function drawPowerUps(myInterp) {
+  if (powerUps.length === 0) return;
+
+  // Position-based visibility: fraction of power-ups visible
+  const myProgress = myInterp.progress || 0;
+  const progresses = [...playerStates.values()].map(p => p.progress || 0);
+  const rank       = progresses.filter(p => p > myProgress).length + 1;
+  const total      = Math.max(progresses.length, 1);
+  const relPos     = total > 1 ? (rank - 1) / (total - 1) : 1; // 0=first, 1=last
+  const fraction   = 0.3 + relPos * 0.7; // 0.3 for leader, 1.0 for last
+  const threshold  = Math.round(fraction * 10);
+
+  const now = Date.now();
+  ctx.save();
+  for (const pu of powerUps) {
+    if (myPickedUpPowerUps.has(pu.id)) continue;
+    if ((pu.id % 10) >= threshold) continue; // not visible at this rank
+
+    const canvasY = PLAYER_RENDER_Y - (pu.y - myInterp.y);
+    if (canvasY < -50 || canvasY > CANVAS_H + 50) continue;
+    const canvasX = TRACK_CENTER_X + pu.x;
+    const pulse   = 0.7 + 0.3 * Math.sin(now / 300);
+
+    // Outer glow
+    ctx.globalAlpha = 0.25 * pulse;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(canvasX, canvasY, 22 * pulse, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Inner circle (gold)
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = '#ffd700';
+    ctx.beginPath();
+    ctx.arc(canvasX, canvasY, 14, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Generic star icon — type revealed at pickup
+    ctx.globalAlpha = 1;
+    ctx.font = '13px serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('⭐', canvasX, canvasY);
+    ctx.textBaseline = 'alphabetic';
+  }
+  ctx.restore();
+}
+
+function spawnComboParticles(cx, cy, combo) {
+  const count  = combo >= 20 ? 20 : combo >= 10 ? 14 : 8;
+  const color  = combo >= 20 ? '#ffd700' : combo >= 10 ? '#ff9800' : '#4fc3f7';
+  const speed  = combo >= 10 ? 4.5 : 3;
+  for (let i = 0; i < count; i++) {
+    const angle = (Math.PI * 2 * i) / count + Math.random() * 0.4;
+    const spd   = speed * (0.6 + Math.random() * 0.8);
+    comboParticles.push({
+      x: cx, y: cy,
+      vx: Math.cos(angle) * spd,
+      vy: Math.sin(angle) * spd,
+      life: 1,
+      color,
+      size: 3 + Math.random() * 3,
+    });
+  }
+}
+
+function drawComboParticles() {
+  comboParticles = comboParticles.filter(p => p.life > 0);
+  ctx.save();
+  for (const p of comboParticles) {
+    p.x  += p.vx;
+    p.y  += p.vy;
+    p.vy += 0.12;
+    p.vx *= 0.97;
+    p.life -= 0.035;
+    if (p.life <= 0) continue; // skip: radius would be negative → ctx.arc throws
+    ctx.globalAlpha = p.life;
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+    ctx.fill();
+  }
   ctx.restore();
 }
 
@@ -1097,6 +1240,15 @@ function formatTime(ms) {
   return `${ss}.${String(cs).padStart(2, '0')}s`;
 }
 
+function formatPowerUpCounts(counts) {
+  if (!counts) return '-';
+  const parts = [];
+  if (counts.boost  > 0) parts.push(`🚀×${counts.boost}`);
+  if (counts.shield > 0) parts.push(`🛡️×${counts.shield}`);
+  if (counts.bomb   > 0) parts.push(`💣×${counts.bomb}`);
+  return parts.length > 0 ? parts.join(' ') : '-';
+}
+
 function escapeHtml(str) {
   return String(str)
     .replace(/&/g, '&amp;')
@@ -1104,3 +1256,21 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
+
+// ── QR Code ───────────────────────────────────────────────────────────────────
+
+function generateQRCode(code) {
+  const el = document.getElementById('qr-code');
+  if (!el || typeof QRCode === 'undefined') return;
+  el.innerHTML = '';
+  const url = window.location.origin + '?join=' + code;
+  new QRCode(el, { text: url, width: 120, height: 120, colorDark: '#000000', colorLight: '#ffffff' });
+}
+
+// Auto-fill code from URL when scanning QR code
+(function () {
+  const code = new URLSearchParams(window.location.search).get('join');
+  if (code) {
+    document.getElementById('input-code').value = code.toUpperCase().slice(0, 4);
+  }
+})();

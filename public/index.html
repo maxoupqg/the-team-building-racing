@@ -51,6 +51,8 @@
           <span id="room-code-text">----</span>
           <button id="btn-copy-code" class="btn-icon" title="Copier">📋</button>
         </div>
+        <div id="qr-code" class="qr-code"></div>
+        <span class="room-code-label">Scanner pour rejoindre</span>
       </div>
 
       <div class="lobby-players-section">
@@ -66,6 +68,11 @@
           </thead>
           <tbody></tbody>
         </table>
+      </div>
+
+      <div class="powerups-row">
+        <span class="room-code-label">Power-ups</span>
+        <button id="btn-toggle-powerups" class="btn btn-small btn-outline">⚡ Désactivés</button>
       </div>
 
       <div id="lobby-host-controls" class="lobby-controls hidden">
@@ -100,6 +107,7 @@
             <th>Joueur</th>
             <th>Temps</th>
             <th>Combo</th>
+            <th>⭐ Power-ups</th>
             <th>Points</th>
             <th>Total</th>
           </tr>
@@ -149,6 +157,7 @@
     <div id="countdown-text" class="countdown-text">3</div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <script src="game.js"></script>
 </body>

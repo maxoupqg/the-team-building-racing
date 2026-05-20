@@ -39,6 +39,7 @@ class Room {
     this.raceNumber = 0;
     this.currentRace = null;
     this.lastResults = null;
+    this.powerUpsEnabled = false;
   }
 
   // ── Player management ──────────────────────────────────────────────────────
@@ -92,12 +93,18 @@ class Room {
 
   // ── Lobby helpers ──────────────────────────────────────────────────────────
 
+  togglePowerUps() {
+    this.powerUpsEnabled = !this.powerUpsEnabled;
+    this._emitLobbyUpdate();
+  }
+
   _emitLobbyUpdate() {
     this.io.to(this.code).emit('lobby_update', {
-      players:     this._playerList(),
-      hostId:      this.hostId,
-      standings:   this._standingsList(),
-      raceNumber:  this.raceNumber,
+      players:         this._playerList(),
+      hostId:          this.hostId,
+      standings:       this._standingsList(),
+      raceNumber:      this.raceNumber,
+      powerUpsEnabled: this.powerUpsEnabled,
     });
   }
 
@@ -155,6 +162,7 @@ class Room {
       this.io,
       this.code,
       (finishOrder, playerStates) => this._onRaceFinished(finishOrder, playerStates),
+      { powerUpsEnabled: this.powerUpsEnabled },
     );
 
     this.currentRace.start();
@@ -194,12 +202,13 @@ class Room {
 
       results.push({
         playerId,
-        name:        pState.name,
-        color:       pState.color,
+        name:          pState.name,
+        color:         pState.color,
         position,
-        finishTime:  pState.finishTime,
-        maxCombo:    pState.maxCombo || 0,
-        points:      pts,
+        finishTime:    pState.finishTime,
+        maxCombo:      pState.maxCombo || 0,
+        powerUpCounts: pState.powerUpCounts || { boost: 0, shield: 0, bomb: 0 },
+        points:        pts,
         comboBonus,
         streakBonus,
         totalPoints: standing.totalPoints,
@@ -226,23 +235,25 @@ class Room {
 
   emitRoomCreated(socket) {
     socket.emit('room_created', {
-      code:      this.code,
-      playerId:  socket.id,
-      hostId:    this.hostId,
-      players:   this._playerList(),
-      standings: this._standingsList(),
-      raceNumber: this.raceNumber,
+      code:            this.code,
+      playerId:        socket.id,
+      hostId:          this.hostId,
+      players:         this._playerList(),
+      standings:       this._standingsList(),
+      raceNumber:      this.raceNumber,
+      powerUpsEnabled: this.powerUpsEnabled,
     });
   }
 
   emitRoomJoined(socket) {
     socket.emit('room_joined', {
-      code:        this.code,
-      playerId:    socket.id,
-      players:     this._playerList(),
-      hostId:      this.hostId,
-      standings:   this._standingsList(),
-      raceNumber:  this.raceNumber,
+      code:            this.code,
+      playerId:        socket.id,
+      players:         this._playerList(),
+      hostId:          this.hostId,
+      standings:       this._standingsList(),
+      raceNumber:      this.raceNumber,
+      powerUpsEnabled: this.powerUpsEnabled,
     });
     // Notify everyone else
     this._emitLobbyUpdate();

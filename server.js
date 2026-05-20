@@ -119,6 +119,13 @@ io.on('connection', (socket) => {
     console.log(`[Room] Session ended: ${code}`);
   });
 
+  // Host toggles power-ups (lobby only)
+  socket.on('toggle_powerups', () => {
+    const room = findRoomByPlayerId(socket.id);
+    if (!room || !room.isHost(socket.id) || room.state !== 'lobby') return;
+    room.togglePowerUps();
+  });
+
   // Emoji reaction during race
   socket.on('reaction', ({ emoji }) => {
     const room = findRoomByPlayerId(socket.id);

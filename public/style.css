@@ -204,6 +204,41 @@ input[type="text"]:focus { border-color: var(--accent); }
   color:         var(--accent2);
 }
 
+.powerups-row {
+  display:     flex;
+  align-items: center;
+  justify-content: center;
+  gap:         .75rem;
+  margin:      .5rem 0;
+}
+.btn-outline {
+  background:    transparent;
+  border:        2px solid var(--text-dim);
+  color:         var(--text-dim);
+  padding:       .35rem .9rem;
+  border-radius: var(--radius-sm);
+  font-size:     .85rem;
+  cursor:        pointer;
+  transition:    border-color .2s, color .2s;
+}
+.btn-outline.active {
+  border-color: #4caf50;
+  color:        #4caf50;
+}
+.btn-outline:disabled {
+  opacity: .45;
+  cursor:  default;
+}
+
+.qr-code {
+  margin-top: .5rem;
+  padding:    6px;
+  background: #fff;
+  border-radius: 8px;
+  line-height: 0;
+}
+.qr-code img, .qr-code canvas { display: block; }
+
 .player-list { display: flex; flex-direction: column; gap: .5rem; }
 .player-card {
   display:       flex;
