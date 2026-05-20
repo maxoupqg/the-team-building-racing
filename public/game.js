@@ -36,30 +36,52 @@ function createRNG(seed) {
 }
 
 // ── Obstacle generator (must match server) ────────────────────────────────────
+const OBSTACLE_TYPES = ['log', 'barrier', 'wall_left', 'wall_right', 'crate'];
+const OBS_PHASE2 = 0.30;
+const OBS_PHASE3 = 0.72;
+const OBS_W1 = [0.50, 0.50, 0,    0,    0   ];
+const OBS_W2 = [0.22, 0.22, 0.18, 0.18, 0.20];
+const OBS_W3 = [0.12, 0.12, 0.25, 0.25, 0.26];
+
+function weightedPick(rng, weights) {
+  const r = rng();
+  let cum = 0;
+  for (let i = 0; i < weights.length; i++) {
+    cum += weights[i];
+    if (r < cum) return i;
+  }
+  return weights.length - 1;
+}
+
 function generateObstacles(seed, trackLength) {
   const rng = createRNG(seed);
-  const OBSTACLE_TYPES = ['log', 'barrier', 'wall_left', 'wall_right', 'crate'];
   const obstacles = [];
   let id = 0;
   const START_Y = 900;
   const END_Y   = trackLength - 700;
   let y = START_Y;
   while (y < END_Y) {
-    const typeIndex = Math.floor(rng() * OBSTACLE_TYPES.length);
-    const type = OBSTACLE_TYPES[typeIndex];
-    let x = 0, width, cratePositions;
-    // Spacing stays above window total (650) to prevent two obstacles in the same detection window
     const progress = Math.min(1, (y - START_Y) / (END_Y - START_Y));
+    let weights, minSpacing, maxSpacing;
+    if (progress < OBS_PHASE2) {
+      weights = OBS_W1; minSpacing = 950; maxSpacing = 1300;
+    } else if (progress < OBS_PHASE3) {
+      weights = OBS_W2; minSpacing = 700; maxSpacing = 1000;
+    } else {
+      weights = OBS_W3; minSpacing = 550; maxSpacing = 720;
+    }
+    const type = OBSTACLE_TYPES[weightedPick(rng, weights)];
+    let x = 0, width, cratePositions;
     if (type === 'wall_left') {
       x = -70; width = Math.round(140 + progress * 80);
     } else if (type === 'wall_right') {
       x = 70;  width = Math.round(140 + progress * 80);
     } else if (type === 'crate') {
       let crateCount;
-      if      (progress < 0.35) crateCount = 1;
-      else if (progress < 0.65) crateCount = 2;
-      else if (progress < 0.85) crateCount = 3;
-      else                      crateCount = 5;
+      if      (progress < OBS_PHASE2 + 0.15) crateCount = 1;
+      else if (progress < OBS_PHASE3)        crateCount = 2;
+      else if (progress < 0.88)              crateCount = 3;
+      else                                   crateCount = 5;
       if (crateCount === 1) {
         cratePositions = [{ x: (rng() * 120) - 60 }];
       } else if (crateCount === 2) {
@@ -72,8 +94,6 @@ function generateObstacles(seed, trackLength) {
       x = 0;
     }
     obstacles.push({ id: id++, type, y, x, width, cratePositions });
-    const minSpacing = 700;
-    const maxSpacing = 1000 - progress * 200;
     y += minSpacing + rng() * (maxSpacing - minSpacing);
   }
   return obstacles;

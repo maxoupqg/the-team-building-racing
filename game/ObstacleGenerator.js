@@ -4,6 +4,26 @@ const { createRNG } = require('./seededRandom');
 
 const OBSTACLE_TYPES = ['log', 'barrier', 'wall_left', 'wall_right', 'crate'];
 
+// Weighted pick using one rng() call — weights must sum to 1
+function weightedPick(rng, weights) {
+  const r = rng();
+  let cum = 0;
+  for (let i = 0; i < weights.length; i++) {
+    cum += weights[i];
+    if (r < cum) return i;
+  }
+  return weights.length - 1;
+}
+
+// Phase thresholds (fraction of usable track)
+const PHASE2 = 0.30;  // warm-up ends
+const PHASE3 = 0.72;  // sprint begins
+
+// Type weights per phase: [log, barrier, wall_left, wall_right, crate]
+const W1 = [0.50, 0.50, 0,    0,    0   ];  // phase 1 — simple only
+const W2 = [0.22, 0.22, 0.18, 0.18, 0.20];  // phase 2 — balanced
+const W3 = [0.12, 0.12, 0.25, 0.25, 0.26];  // phase 3 — walls/crates heavy
+
 /**
  * Generate obstacles for a race track using a seeded RNG.
  * @param {number} seed
@@ -16,20 +36,24 @@ function generateObstacles(seed, trackLength) {
   let id = 0;
 
   const START_Y = 900;
-  const END_Y = trackLength - 700;
-
+  const END_Y   = trackLength - 700;
   let y = START_Y;
 
   while (y < END_Y) {
-    const typeIndex = Math.floor(rng() * OBSTACLE_TYPES.length);
-    const type = OBSTACLE_TYPES[typeIndex];
-
-    let x = 0;
-    let width;
-    let cratePositions;
-
-    // Spacing stays above window total (650) to prevent two obstacles in the same detection window
     const progress = Math.min(1, (y - START_Y) / (END_Y - START_Y));
+
+    // Phase-based type selection and spacing
+    let weights, minSpacing, maxSpacing;
+    if (progress < PHASE2) {
+      weights = W1; minSpacing = 950; maxSpacing = 1300;
+    } else if (progress < PHASE3) {
+      weights = W2; minSpacing = 700; maxSpacing = 1000;
+    } else {
+      weights = W3; minSpacing = 550; maxSpacing = 720;
+    }
+
+    const type = OBSTACLE_TYPES[weightedPick(rng, weights)];
+    let x = 0, width, cratePositions;
 
     if (type === 'wall_left') {
       x = -70;
@@ -39,10 +63,10 @@ function generateObstacles(seed, trackLength) {
       width = Math.round(140 + progress * 80);
     } else if (type === 'crate') {
       let crateCount;
-      if      (progress < 0.35) crateCount = 1;
-      else if (progress < 0.65) crateCount = 2;
-      else if (progress < 0.85) crateCount = 3;
-      else                      crateCount = 5;
+      if      (progress < PHASE2 + 0.15) crateCount = 1;
+      else if (progress < PHASE3)        crateCount = 2;
+      else if (progress < 0.88)          crateCount = 3;
+      else                               crateCount = 5;
 
       if (crateCount === 1) {
         cratePositions = [{ x: (rng() * 120) - 60 }];
@@ -57,12 +81,9 @@ function generateObstacles(seed, trackLength) {
     }
 
     obstacles.push({ id: id++, type, y, x, width, cratePositions });
-    const minSpacing = 700;
-    const maxSpacing = 1000 - progress * 200;
     y += minSpacing + rng() * (maxSpacing - minSpacing);
   }
 
-  // Already sorted ascending by y (spawned in order)
   return obstacles;
 }
 
