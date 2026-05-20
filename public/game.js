@@ -896,7 +896,7 @@ function renderFrame() {
     );
   }
   drawBackground();
-  drawTrack();
+  drawTrack(myInterp);
   drawLaneLines();
   drawObstacles(myInterp);
   drawPowerUps(myInterp);
@@ -949,9 +949,37 @@ function drawBackground() {
   ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 }
 
-function drawTrack() {
+function drawTrack(myInterp) {
+  // Base track
   ctx.fillStyle = '#333';
   ctx.fillRect(TRACK_LEFT, 0, TRACK_RENDER_W, CANVAS_H);
+
+  // Phase color overlays — boundaries derived from same constants as obstacle generator
+  const START_Y  = 900;
+  const END_Y    = C.TRACK_LENGTH - 700;
+  const PHASE2_Y = OBS_PHASE2 * (END_Y - START_Y) + START_Y;  // ~15 420
+  const PHASE3_Y = OBS_PHASE3 * (END_Y - START_Y) + START_Y;  // ~35 748
+  const playerY  = myInterp ? myInterp.y : 0;
+
+  // [from, to, color]  — track coords, ascending
+  const PHASES = [
+    [0,        PHASE2_Y,          'rgba(76,175,80,0.18)' ],  // vert
+    [PHASE2_Y, PHASE3_Y,          'rgba(255,235,59,0.13)'],  // jaune
+    [PHASE3_Y, C.TRACK_LENGTH,    'rgba(255,152,0,0.16)' ],  // orange
+  ];
+
+  ctx.save();
+  for (const [from, to, color] of PHASES) {
+    // canvasY = PLAYER_RENDER_Y - (trackY - playerY)
+    const topCanvas    = PLAYER_RENDER_Y - (to   - playerY);
+    const bottomCanvas = PLAYER_RENDER_Y - (from - playerY);
+    const drawTop    = Math.max(0, topCanvas);
+    const drawBottom = Math.min(CANVAS_H, bottomCanvas);
+    if (drawBottom <= drawTop) continue;
+    ctx.fillStyle = color;
+    ctx.fillRect(TRACK_LEFT, drawTop, TRACK_RENDER_W, drawBottom - drawTop);
+  }
+  ctx.restore();
 }
 
 function drawLaneLines() {
@@ -1225,6 +1253,20 @@ function drawProgressBar(interp) {
   ctx.fillRect(bx - 2, SIDEBAR_Y_TOP - 5, bw + 4, SIDEBAR_H + 10);
   ctx.fillStyle = '#444';
   ctx.fillRect(bx, SIDEBAR_Y_TOP, bw, SIDEBAR_H);
+
+  // Phase color bands on the sidebar
+  const sb_END_Y    = C.TRACK_LENGTH - 700;
+  const sb_PHASE2_p = (OBS_PHASE2 * (sb_END_Y - 900) + 900) / C.TRACK_LENGTH;
+  const sb_PHASE3_p = (OBS_PHASE3 * (sb_END_Y - 900) + 900) / C.TRACK_LENGTH;
+  // progress→sidebarY: SIDEBAR_Y_TOP + (1-p)*SIDEBAR_H
+  const sb_ph2Y = SIDEBAR_Y_TOP + (1 - sb_PHASE2_p) * SIDEBAR_H;
+  const sb_ph3Y = SIDEBAR_Y_TOP + (1 - sb_PHASE3_p) * SIDEBAR_H;
+  ctx.fillStyle = 'rgba(76,175,80,0.35)';
+  ctx.fillRect(bx, sb_ph2Y, bw, SIDEBAR_Y_BOT - sb_ph2Y);     // phase 1 (bottom)
+  ctx.fillStyle = 'rgba(255,235,59,0.30)';
+  ctx.fillRect(bx, sb_ph3Y, bw, sb_ph2Y - sb_ph3Y);            // phase 2 (middle)
+  ctx.fillStyle = 'rgba(255,152,0,0.35)';
+  ctx.fillRect(bx, SIDEBAR_Y_TOP, bw, sb_ph3Y - SIDEBAR_Y_TOP); // phase 3 (top)
 
   // Finish line at top
   ctx.fillStyle = '#4caf50';
