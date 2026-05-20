@@ -901,8 +901,13 @@ function renderFrame() {
   drawObstacles(myInterp);
   drawPowerUps(myInterp);
   drawFinishLine(myInterp);
+  // Rubber-band amount (mirrors server formula)
+  const _leaderProg = Math.max(...[...interp.values()].map(p => p.progress || 0));
+  const _rbGap      = Math.max(0, _leaderProg - (myInterp.progress || 0));
+  const rb          = Math.min(_rbGap * 0.3, 0.3);  // 0 → 0.30
+
   drawGhostPlayers(interp, myInterp);
-  drawMyPlayer(myInterp);
+  drawMyPlayer(myInterp, rb);
   drawComboParticles();
   ctx.restore();
 
@@ -915,7 +920,7 @@ function renderFrame() {
     ctx.restore();
   }
 
-  drawHUD(myInterp);
+  drawHUD(myInterp, rb);
   drawCommentator();
   drawProgressBar(interp);
   drawFloatingReactions(interp, myInterp);
@@ -1149,9 +1154,29 @@ function drawGhostPlayers(interp, myInterp) {
   }
 }
 
-function drawMyPlayer(p) {
+function drawMyPlayer(p, rb = 0) {
   const cx = TRACK_CENTER_X + p.x;
   const cy = PLAYER_RENDER_Y;
+
+  // Rubber-band flame trail (drawn before player so it's behind)
+  if (rb > 0.05) {
+    const intensity = (rb - 0.05) / 0.25;  // 0→1 over the active range
+    ctx.save();
+    const flameH = 18 + 42 * intensity;
+    const flameW = 8 + 10 * intensity;
+    const grad = ctx.createLinearGradient(cx, cy + 14, cx, cy + 14 + flameH);
+    grad.addColorStop(0,   `rgba(255,220,60,${0.9 * intensity})`);
+    grad.addColorStop(0.4, `rgba(255,120,0,${0.75 * intensity})`);
+    grad.addColorStop(1,   'rgba(255,40,0,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(cx - flameW, cy + 14);
+    ctx.quadraticCurveTo(cx - flameW * 1.6, cy + 14 + flameH * 0.6, cx, cy + 14 + flameH);
+    ctx.quadraticCurveTo(cx + flameW * 1.6, cy + 14 + flameH * 0.6, cx + flameW, cy + 14);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
 
   ctx.save();
   // Shadow
@@ -1208,7 +1233,7 @@ function stateToIcon(state) {
   return null;
 }
 
-function drawHUD(myInterp) {
+function drawHUD(myInterp, rb = 0) {
   ctx.save();
   ctx.font = 'bold 14px Inter, system-ui, sans-serif';
 
@@ -1218,11 +1243,18 @@ function drawHUD(myInterp) {
   ctx.textAlign = 'left';
   ctx.fillText(`COMBO x${combo}`, 8, 22);
 
-  // Top-center: speed
+  // Top-center: speed + rubber-band indicator
   const speed = myInterp.speed || C.BASE_SPEED;
   ctx.fillStyle = '#eaeaea';
   ctx.textAlign = 'center';
   ctx.fillText(`⚡ ${Math.round(speed)} u/s`, CANVAS_W / 2, 22);
+
+  if (rb > 0.05) {
+    const pct = Math.round(rb * 100);
+    ctx.font = 'bold 11px Inter, system-ui, sans-serif';
+    ctx.fillStyle = `rgba(255,${Math.round(180 - rb * 400)},0,0.95)`;
+    ctx.fillText(`🔥 RATTRAPAGE +${pct}%`, CANVAS_W / 2, 38);
+  }
 
   // Top-right: progress
   const progress = myInterp.progress || 0;
