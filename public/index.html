@@ -73,6 +73,7 @@
       <div class="powerups-row">
         <span class="room-code-label">Power-ups</span>
         <button id="btn-toggle-powerups" class="btn btn-small btn-outline">⚡ Désactivés</button>
+        <button id="btn-toggle-teams" class="btn btn-small btn-outline">👥 Équipes off</button>
       </div>
 
       <div id="lobby-host-controls" class="lobby-controls hidden">
@@ -114,6 +115,16 @@
         </thead>
         <tbody></tbody>
       </table>
+
+      <div id="team-results-section" class="hidden">
+        <h3>🏆 Classement par équipe</h3>
+        <table id="team-results-table" class="team-results-table">
+          <thead>
+            <tr><th>#</th><th>Équipe</th><th>Membres</th><th>Score</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
 
       <div class="results-standings">
         <h3>Classement général</h3>

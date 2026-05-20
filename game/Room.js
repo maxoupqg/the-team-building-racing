@@ -40,6 +40,10 @@ class Room {
     this.currentRace = null;
     this.lastResults = null;
     this.powerUpsEnabled = false;
+
+    // Team mode
+    this.teamMode = false;
+    this.teams    = [];   // [{ id, name, color, playerIds }]
   }
 
   // ── Player management ──────────────────────────────────────────────────────
@@ -57,6 +61,8 @@ class Room {
         streak:      0,   // consecutive wins
       });
     }
+
+    if (this.teamMode) this._rebuildTeams();
   }
 
   removePlayer(socketId) {
@@ -73,6 +79,8 @@ class Room {
         this.hostId = null;
       }
     }
+
+    if (this.teamMode) this._rebuildTeams();
 
     const newHostId = this.hostId;
     this.io.to(this.code).emit('player_left', { playerId: socketId, newHostId });
@@ -98,6 +106,57 @@ class Room {
     this._emitLobbyUpdate();
   }
 
+  toggleTeamMode() {
+    this.teamMode = !this.teamMode;
+    if (this.teamMode) {
+      this._rebuildTeams();
+    } else {
+      this.teams = [];
+    }
+    this._emitLobbyUpdate();
+  }
+
+  _rebuildTeams() {
+    const players = [...this.players.values()];
+    const n = players.length;
+    const numTeams = n < 4 ? 0 : Math.min(4, Math.floor(n / 2));
+
+    if (numTeams < 2) {
+      this.teams = [];
+      return;
+    }
+
+    const TEAM_COLORS = ['#e94560', '#4fc3f7', '#66bb6a', '#ffa726'];
+    const teams = Array.from({ length: numTeams }, (_, i) => ({
+      id:        i,
+      color:     TEAM_COLORS[i],
+      playerIds: [],
+      members:   [],
+    }));
+
+    // Round-robin assignment by join order
+    players.forEach((p, i) => {
+      teams[i % numTeams].playerIds.push(p.id);
+      teams[i % numTeams].members.push({ id: p.id, name: p.name, color: p.color });
+    });
+
+    // Generate portmanteau name from first two members
+    teams.forEach(t => {
+      t.name = this._generateTeamName(t.members);
+    });
+
+    this.teams = teams;
+  }
+
+  _generateTeamName(members) {
+    if (members.length === 0) return 'Les ???';
+    if (members.length === 1) return `Les ${members[0].name.slice(0, 14)}`;
+    const n1 = members[0].name;
+    const n2 = members[1].name;
+    const portmanteau = n1.slice(0, Math.ceil(n1.length / 2)) + n2.slice(Math.floor(n2.length / 2));
+    return `Les ${portmanteau.slice(0, 14)}`;
+  }
+
   _emitLobbyUpdate() {
     this.io.to(this.code).emit('lobby_update', {
       players:         this._playerList(),
@@ -105,6 +164,8 @@ class Room {
       standings:       this._standingsList(),
       raceNumber:      this.raceNumber,
       powerUpsEnabled: this.powerUpsEnabled,
+      teamMode:        this.teamMode,
+      teams:           this.teams,
     });
   }
 
@@ -217,10 +278,24 @@ class Room {
 
     this.lastResults = results;
 
+    let teamResults = null;
+    if (this.teams.length > 0) {
+      teamResults = this.teams.map(team => ({
+        id:      team.id,
+        name:    team.name,
+        color:   team.color,
+        score:   results
+          .filter(r => team.playerIds.includes(r.playerId))
+          .reduce((s, r) => s + r.points + r.comboBonus + r.streakBonus, 0),
+        members: results.filter(r => team.playerIds.includes(r.playerId)),
+      })).sort((a, b) => b.score - a.score);
+    }
+
     this.io.to(this.code).emit('race_results', {
       raceNumber: this.raceNumber,
       results,
       standings:  this._standingsList(),
+      teamResults,
     });
   }
 
@@ -242,6 +317,8 @@ class Room {
       standings:       this._standingsList(),
       raceNumber:      this.raceNumber,
       powerUpsEnabled: this.powerUpsEnabled,
+      teamMode:        this.teamMode,
+      teams:           this.teams,
     });
   }
 
@@ -254,6 +331,8 @@ class Room {
       standings:       this._standingsList(),
       raceNumber:      this.raceNumber,
       powerUpsEnabled: this.powerUpsEnabled,
+      teamMode:        this.teamMode,
+      teams:           this.teams,
     });
     // Notify everyone else
     this._emitLobbyUpdate();

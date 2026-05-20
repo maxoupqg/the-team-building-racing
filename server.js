@@ -126,6 +126,13 @@ io.on('connection', (socket) => {
     room.togglePowerUps();
   });
 
+  // Host toggles team mode (lobby only)
+  socket.on('toggle_teams', () => {
+    const room = findRoomByPlayerId(socket.id);
+    if (!room || !room.isHost(socket.id) || room.state !== 'lobby') return;
+    room.toggleTeamMode();
+  });
+
   // Emoji reaction during race
   socket.on('reaction', ({ emoji }) => {
     const room = findRoomByPlayerId(socket.id);

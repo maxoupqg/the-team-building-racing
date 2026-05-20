@@ -107,13 +107,13 @@ let isHost       = false;
 let raceNumber   = 0;
 
 // Racing state
-let obstacles      = [];
-let playerStates   = new Map();  // id -> { x, y, state, combo, speed, finished, progress, name, color }
-let lastServerState = null;      // most recent game_state payload
-let prevServerState = null;      // previous game_state payload
-let lastServerTime  = 0;
-let prevServerTime  = 0;
-let rafId          = null;
+let obstacles        = [];
+let playerStates     = new Map();   // id -> { x, y, state, combo, speed, finished, progress, name, color }
+let playerIndexMap   = new Map();   // short index -> socket id
+let prevPositions    = new Map();   // id -> { x, y } snapshot from previous game_state (for interpolation)
+let lastServerTime   = 0;
+let prevServerTime   = 0;
+let rafId            = null;
 
 // Input state
 let input = { left: false, right: false, jump: false, slide: false, attack: false };
@@ -142,6 +142,10 @@ let particlePrevCombo     = 0;
 let powerUps              = [];  // received from server via race_start
 let myPickedUpPowerUps    = new Set();  // ids picked up by THIS player
 let powerUpsEnabled       = false;
+
+// Teams
+let teamMode              = false;
+let currentTeams          = [];  // [{ id, name, color, playerIds, members }]
 
 // ── DOM helpers ───────────────────────────────────────────────────────────────
 function showScreen(id) {
@@ -224,30 +228,80 @@ document.getElementById('btn-toggle-powerups').addEventListener('click', () => {
   socket.emit('toggle_powerups');
 });
 
-function renderLobby(players, hostId, standings, raceNum, puEnabled) {
+document.getElementById('btn-toggle-teams').addEventListener('click', () => {
+  if (!isHost) return;
+  socket.emit('toggle_teams');
+});
+
+function renderLobby(players, hostId, standings, raceNum, puEnabled, teams, tmMode) {
   isHost = hostId === myPlayerId;
   raceNumber = raceNum || 0;
   powerUpsEnabled = !!puEnabled;
+  teamMode = !!tmMode;
+  currentTeams = teams || [];
 
   const btnPU = document.getElementById('btn-toggle-powerups');
   btnPU.textContent  = powerUpsEnabled ? '⚡ Activés' : '⚡ Désactivés';
   btnPU.classList.toggle('active', powerUpsEnabled);
   btnPU.disabled = !isHost;
 
+  const btnTM = document.getElementById('btn-toggle-teams');
+  btnTM.textContent = teamMode ? '👥 Équipes on' : '👥 Équipes off';
+  btnTM.classList.toggle('active', teamMode);
+  btnTM.disabled = !isHost;
+
   document.getElementById('player-count').textContent = `(${players.length})`;
 
   const list = document.getElementById('player-list');
   list.innerHTML = '';
-  players.forEach(p => {
-    const card = document.createElement('div');
-    card.className = 'player-card';
-    card.innerHTML = `
-      <div class="player-dot" style="background:${p.color}"></div>
-      <span>${escapeHtml(p.name)}</span>
-      ${p.id === hostId ? '<span class="player-crown">👑</span>' : ''}
-    `;
-    list.appendChild(card);
-  });
+
+  if (teamMode && currentTeams.length >= 2) {
+    // Group players by team
+    currentTeams.forEach(team => {
+      const teamPlayers = players.filter(p => team.playerIds.includes(p.id));
+      teamPlayers.forEach(p => {
+        const card = document.createElement('div');
+        card.className = 'player-card';
+        card.innerHTML = `
+          <div class="player-dot" style="background:${p.color}"></div>
+          <span>${escapeHtml(p.name)}</span>
+          ${p.id === hostId ? '<span class="player-crown">👑</span>' : ''}
+          <span class="team-label" style="background:${team.color}22;color:${team.color};border:1px solid ${team.color}55">${escapeHtml(team.name)}</span>
+        `;
+        list.appendChild(card);
+      });
+    });
+    // Players not yet in any team (< 4 players or rounding)
+    const assignedIds = new Set(currentTeams.flatMap(t => t.playerIds));
+    players.filter(p => !assignedIds.has(p.id)).forEach(p => {
+      const card = document.createElement('div');
+      card.className = 'player-card';
+      card.innerHTML = `
+        <div class="player-dot" style="background:${p.color}"></div>
+        <span>${escapeHtml(p.name)}</span>
+        ${p.id === hostId ? '<span class="player-crown">👑</span>' : ''}
+      `;
+      list.appendChild(card);
+    });
+  } else {
+    players.forEach(p => {
+      const card = document.createElement('div');
+      card.className = 'player-card';
+      card.innerHTML = `
+        <div class="player-dot" style="background:${p.color}"></div>
+        <span>${escapeHtml(p.name)}</span>
+        ${p.id === hostId ? '<span class="player-crown">👑</span>' : ''}
+      `;
+      list.appendChild(card);
+    });
+  }
+
+  if (teamMode && players.length < 4) {
+    const note = document.createElement('div');
+    note.style.cssText = 'text-align:center;color:#8892a4;font-size:.8rem;margin-top:.25rem';
+    note.textContent = 'Il faut au moins 4 joueurs pour former des équipes.';
+    list.appendChild(note);
+  }
 
   if (raceNumber > 0 && standings && standings.length > 0) {
     document.getElementById('standings-section').classList.remove('hidden');
@@ -328,6 +382,28 @@ function renderResults(data) {
     `;
     rtbody.appendChild(tr);
   });
+
+  // Team results
+  const teamSection = document.getElementById('team-results-section');
+  if (data.teamResults && data.teamResults.length > 0) {
+    teamSection.classList.remove('hidden');
+    const ttbody = document.querySelector('#team-results-table tbody');
+    ttbody.innerHTML = '';
+    data.teamResults.forEach((team, i) => {
+      const memberNames = team.members.map(m => escapeHtml(m.name)).join(', ');
+      const tr = document.createElement('tr');
+      tr.className = `team-row-${team.id + 1}`;
+      tr.innerHTML = `
+        <td>${i + 1}</td>
+        <td><span class="team-badge" style="background:${team.color}"></span><strong style="color:${team.color}">${escapeHtml(team.name)}</strong></td>
+        <td style="color:var(--text-dim);font-size:.82rem">${memberNames}</td>
+        <td><strong>${team.score}</strong></td>
+      `;
+      ttbody.appendChild(tr);
+    });
+  } else {
+    teamSection.classList.add('hidden');
+  }
 
   // Standings
   renderStandingsTable('results-standings-table', data.standings);
@@ -412,7 +488,7 @@ socket.on('room_created', (data) => {
   myRoomCode  = data.code;
   isHost      = true;
   document.getElementById('room-code-text').textContent = data.code;
-  renderLobby(data.players, data.hostId, data.standings, data.raceNumber, data.powerUpsEnabled);
+  renderLobby(data.players, data.hostId, data.standings, data.raceNumber, data.powerUpsEnabled, data.teams, data.teamMode);
   generateQRCode(data.code);
   showScreen('screen-lobby');
   gameState = 'lobby';
@@ -422,7 +498,7 @@ socket.on('room_joined', (data) => {
   myPlayerId = data.playerId;
   myRoomCode = data.code;
   document.getElementById('room-code-text').textContent = data.code;
-  renderLobby(data.players, data.hostId, data.standings, data.raceNumber, data.powerUpsEnabled);
+  renderLobby(data.players, data.hostId, data.standings, data.raceNumber, data.powerUpsEnabled, data.teams, data.teamMode);
   generateQRCode(data.code);
   showScreen('screen-lobby');
   gameState = 'lobby';
@@ -430,7 +506,7 @@ socket.on('room_joined', (data) => {
 
 socket.on('lobby_update', (data) => {
   isHost = data.hostId === myPlayerId;
-  renderLobby(data.players, data.hostId, data.standings, data.raceNumber, data.powerUpsEnabled);
+  renderLobby(data.players, data.hostId, data.standings, data.raceNumber, data.powerUpsEnabled, data.teams, data.teamMode);
   if (gameState === 'results') {
     gameState = 'lobby';
     showScreen('screen-lobby');
@@ -448,8 +524,9 @@ socket.on('race_start', (data) => {
   // Regenerate obstacles client-side using same seed
   obstacles = generateObstacles(data.seed, data.trackLength || C.TRACK_LENGTH);
 
-  // Initialize player states from server data
-  playerStates = new Map();
+  // Initialize player states and index map from server data
+  playerStates   = new Map();
+  playerIndexMap = new Map();
   for (const p of data.players) {
     playerStates.set(p.id, {
       id:       p.id,
@@ -463,13 +540,15 @@ socket.on('race_start', (data) => {
       finished: false,
       progress: 0,
     });
+    if (p.i !== undefined) playerIndexMap.set(p.i, p.id);
   }
 
   // Reset input
   input = { left: false, right: false, jump: false, slide: false, attack: false };
   prevInputJson = '';
-  lastServerState = null;
-  prevServerState = null;
+  prevPositions = new Map();
+  lastServerTime = 0;
+  prevServerTime = 0;
   finishNotifications  = [];
   commentatorMessages  = [];
   commentPrevLeaderId  = null;
@@ -492,21 +571,35 @@ socket.on('race_start', (data) => {
   rafId = requestAnimationFrame(renderFrame);
 });
 
-socket.on('game_state', (data) => {
-  prevServerState = lastServerState;
-  prevServerTime  = lastServerTime;
-  lastServerState = data;
-  lastServerTime  = performance.now();
+const STATE_NAMES = ['running', 'jumping', 'sliding', 'attacking'];
 
-  // Update our player states map from server data
-  for (const ps of data.players) {
-    const existing = playerStates.get(ps.id);
-    if (existing) {
-      Object.assign(existing, ps);
-    }
+socket.on('game_state', (data) => {
+  // Snapshot current positions for interpolation before overwriting
+  prevPositions = new Map();
+  for (const [id, p] of playerStates) prevPositions.set(id, { x: p.x, y: p.y });
+
+  prevServerTime = lastServerTime;
+  lastServerTime = performance.now();
+
+  // Parse compact array rows: [idx, x, y, stateCode, combo, maxCombo, speed, progress×10000, boostTimer, shielded, slowTimer]
+  for (const row of data.p) {
+    const id = playerIndexMap.get(row[0]);
+    if (!id) continue;
+    const p = playerStates.get(id);
+    if (!p) continue;
+    p.x          = row[1];
+    p.y          = row[2];
+    p.state      = STATE_NAMES[row[3]] || 'running';
+    p.combo      = row[4];
+    p.maxCombo   = row[5];
+    p.speed      = row[6];
+    p.progress   = row[7] / 10000;
+    p.boostTimer = row[8];
+    p.shielded   = row[9] === 1;
+    p.slowTimer  = row[10];
   }
 
-  checkCommentatorEvents(data.players);
+  checkCommentatorEvents([...playerStates.values()]);
 });
 
 function checkCommentatorEvents(players) {
@@ -541,6 +634,7 @@ function addCommentary(text, color) {
 
 socket.on('player_finished', (data) => {
   const p = playerStates.get(data.playerId);
+  if (p) { p.finished = true; p.progress = 1; }
   const name = p ? p.name : data.playerId;
   const emoji = data.position === 1 ? '🥇' : data.position === 2 ? '🥈' : data.position === 3 ? '🥉' : `#${data.position}`;
   finishNotifications.push({
@@ -631,7 +725,7 @@ function renderFrame() {
 
   // Interpolation factor
   let alpha = 0;
-  if (prevServerState && lastServerState) {
+  if (prevPositions.size > 0 && lastServerTime > 0) {
     const elapsed = performance.now() - lastServerTime;
     const interval = lastServerTime - prevServerTime;
     alpha = interval > 0 ? Math.min(elapsed / interval, 1.5) : 1;
@@ -692,11 +786,7 @@ function renderFrame() {
 function getInterpolatedStates(alpha) {
   const result = new Map();
   for (const [id, cur] of playerStates) {
-    if (!prevServerState) {
-      result.set(id, { ...cur });
-      continue;
-    }
-    const prev = prevServerState.players.find(p => p.id === id);
+    const prev = prevPositions.get(id);
     if (!prev) {
       result.set(id, { ...cur });
       continue;

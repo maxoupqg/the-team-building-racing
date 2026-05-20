@@ -73,7 +73,12 @@ class Race {
       });
     }
 
-    this.finishOrder   = [];   // playerIds in finish order
+    // Short integer index per player (used in compact game_state broadcast)
+    this.playerIndex = new Map();
+    let idx = 0;
+    for (const id of this.players.keys()) this.playerIndex.set(id, idx++);
+
+    this.finishOrder   = [];
     this.running       = false;
     this.intervalId    = null;
     this.timeoutId     = null;
@@ -92,6 +97,7 @@ class Race {
       powerUps:    this.powerUps,
       trackLength: TRACK_LENGTH,
       players:     [...this.players.values()].map(p => ({
+        i:     this.playerIndex.get(p.id),
         id:    p.id,
         name:  p.name,
         color: p.color,
@@ -153,25 +159,29 @@ class Race {
       this._updatePlayer(player, leaderProgress);
     }
 
-    // Broadcast game state
-    const state = {
-      players: [...this.players.values()].map(p => ({
-        id:         p.id,
-        x:          p.x,
-        y:          p.y,
-        state:      p.state,
-        combo:      p.combo,
-        maxCombo:   p.maxCombo,
-        speed:      Math.round(p.speed),
-        finished:   p.finished,
-        progress:   p.progress,
-        boostTimer: Math.round(p.boostTimer),
-        shielded:   p.shielded,
-        slowTimer:  Math.round(p.slowTimer),
-      })),
-      timestamp: Date.now(),
-    };
-    this.io.to(this.roomCode).emit('game_state', state);
+    // Broadcast compact game state
+    // Format per player: [idx, x, y, stateCode, combo, maxCombo, speed, progress×10000, boostTimer, shielded, slowTimer]
+    // stateCode: 0=running 1=jumping 2=sliding 3=attacking
+    // Finished players are skipped (client marks them done via player_finished event)
+    const STATE_CODES = { running: 0, jumping: 1, sliding: 2, attacking: 3 };
+    const rows = [];
+    for (const p of this.players.values()) {
+      if (p.finished) continue;
+      rows.push([
+        this.playerIndex.get(p.id),
+        Math.round(p.x),
+        Math.round(p.y),
+        STATE_CODES[p.state] ?? 0,
+        p.combo,
+        p.maxCombo,
+        Math.round(p.speed),
+        Math.round(p.progress * 10000),
+        Math.round(p.boostTimer),
+        p.shielded ? 1 : 0,
+        Math.round(p.slowTimer),
+      ]);
+    }
+    this.io.to(this.roomCode).emit('game_state', { p: rows, t: Date.now() });
 
     // Check if all players have finished
     const allFinished = [...this.players.values()].every(p => p.finished);
