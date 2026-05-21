@@ -1158,21 +1158,24 @@ function drawMyPlayer(p, rb = 0) {
   const cx = TRACK_CENTER_X + p.x;
   const cy = PLAYER_RENDER_Y;
 
-  // Rubber-band flame trail (drawn before player so it's behind)
-  if (rb > 0.05) {
-    const intensity = (rb - 0.05) / 0.25;  // 0→1 over the active range
+  // Rubber-band flame trail (drawn before player so it appears behind)
+  if (rb > 0.02) {
+    const intensity = Math.min(1, rb / 0.20);   // 0→1 as rb goes 0→0.20
+    const baseAlpha = 0.55 + 0.40 * intensity;  // always visible once active
     ctx.save();
-    const flameH = 18 + 42 * intensity;
-    const flameW = 8 + 10 * intensity;
-    const grad = ctx.createLinearGradient(cx, cy + 14, cx, cy + 14 + flameH);
-    grad.addColorStop(0,   `rgba(255,220,60,${0.9 * intensity})`);
-    grad.addColorStop(0.4, `rgba(255,120,0,${0.75 * intensity})`);
-    grad.addColorStop(1,   'rgba(255,40,0,0)');
+    const flameH = 22 + 48 * intensity;
+    const flameW = 9  + 10 * intensity;
+    // Flame starts below the player shadow (cy+20) so it's not hidden behind the circle
+    const fy = cy + 20;
+    const grad = ctx.createLinearGradient(cx, fy, cx, fy + flameH);
+    grad.addColorStop(0,   `rgba(255,230,60,${baseAlpha})`);
+    grad.addColorStop(0.4, `rgba(255,110,0,${baseAlpha * 0.85})`);
+    grad.addColorStop(1,   'rgba(255,30,0,0)');
     ctx.fillStyle = grad;
     ctx.beginPath();
-    ctx.moveTo(cx - flameW, cy + 14);
-    ctx.quadraticCurveTo(cx - flameW * 1.6, cy + 14 + flameH * 0.6, cx, cy + 14 + flameH);
-    ctx.quadraticCurveTo(cx + flameW * 1.6, cy + 14 + flameH * 0.6, cx + flameW, cy + 14);
+    ctx.moveTo(cx - flameW, fy);
+    ctx.quadraticCurveTo(cx - flameW * 1.6, fy + flameH * 0.55, cx, fy + flameH);
+    ctx.quadraticCurveTo(cx + flameW * 1.6, fy + flameH * 0.55, cx + flameW, fy);
     ctx.closePath();
     ctx.fill();
     ctx.restore();
