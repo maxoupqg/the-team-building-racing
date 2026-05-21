@@ -140,6 +140,11 @@ let stateBuffer      = [];   // [{ t: serverMs, states: Map<id,{x,y,...}> }]
 let clockOffset      = 0;    // running estimate of (performance.now() - serverTime)
 let clockSamples     = 0;
 
+// Client-side prediction for own player (eliminates input lag)
+let localX       = 0;
+let localY       = 0;
+let lastRafTime  = 0;
+
 // Input state
 let input = { left: false, right: false, jump: false, slide: false, attack: false };
 let prevInputJson = '';
@@ -692,6 +697,9 @@ socket.on('race_start', (data) => {
   particlePrevCombo    = 0;
   powerUps             = data.powerUps || [];
   myPickedUpPowerUps   = new Set();
+  localX       = 0;
+  localY       = 0;
+  lastRafTime  = 0;
 
   // Show countdown GO then start rendering
   soundCountdown(0);
@@ -739,6 +747,13 @@ socket.on('game_state', (data) => {
   // Push snapshot into render buffer
   stateBuffer.push({ t: data.t, states: snap });
   if (stateBuffer.length > BUFFER_SIZE) stateBuffer.shift();
+
+  // Server correction for own player prediction (soft lerp)
+  const mySnap = snap.get(myPlayerId);
+  if (mySnap) {
+    localY = lerp(localY, mySnap.y, 0.12);
+    localX = lerp(localX, mySnap.x, 0.25);
+  }
 
   // Combo sounds
   const myNowCombo = playerStates.get(myPlayerId)?.combo ?? 0;
@@ -872,8 +887,23 @@ function renderFrame() {
   const myPlayer = playerStates.get(myPlayerId);
   if (!myPlayer) return;
 
-  const interp = getBufferedStates();
-  const myInterp = interp.get(myPlayerId) || myPlayer;
+  // Client-side prediction: advance own position at 60fps, no buffer lag
+  const now = performance.now();
+  const dt  = lastRafTime > 0 ? Math.min((now - lastRafTime) / 1000, 0.05) : 0;
+  lastRafTime = now;
+  if (!myPlayer.finished) {
+    let dx = 0;
+    if (input.left)  dx -= C.MOVE_SPEED;
+    if (input.right) dx += C.MOVE_SPEED;
+    const maxX = C.TRACK_WIDTH / 2 - 20;
+    localX = Math.max(-maxX, Math.min(maxX, localX + dx * dt));
+    localY += (myPlayer.speed || C.BASE_SPEED) * dt;
+    localY  = Math.min(localY, C.TRACK_LENGTH);
+  }
+
+  const interp   = getBufferedStates();
+  const myInterp = { ...(interp.get(myPlayerId) || myPlayer), x: localX, y: localY };
+  interp.set(myPlayerId, myInterp);
 
   // Detect miss (combo reset) → trigger screen shake
   const curCombo = myInterp.combo || 0;
