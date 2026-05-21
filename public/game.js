@@ -158,6 +158,9 @@ let commentPrevComboMap  = new Map();
 let comboParticles        = [];  // { x, y, vx, vy, life, color, size }
 let particlePrevCombo     = 0;
 
+// Interpolation smoothing
+let smoothedInterval      = 50;  // EWMA of inter-packet arrival time, starts at expected 50ms
+
 // Power-ups
 let powerUps              = [];  // received from server via race_start
 let myPickedUpPowerUps    = new Set();  // ids picked up by THIS player
@@ -673,9 +676,10 @@ socket.on('race_start', (data) => {
   // Reset input
   input = { left: false, right: false, jump: false, slide: false, attack: false };
   prevInputJson = '';
-  prevPositions = new Map();
-  lastServerTime = 0;
-  prevServerTime = 0;
+  prevPositions    = new Map();
+  lastServerTime   = 0;
+  prevServerTime   = 0;
+  smoothedInterval = 50;
   finishNotifications  = [];
   commentatorMessages  = [];
   commentPrevLeaderId  = null;
@@ -708,6 +712,10 @@ socket.on('game_state', (data) => {
 
   prevServerTime = lastServerTime;
   lastServerTime = performance.now();
+  if (prevServerTime > 0) {
+    const raw = lastServerTime - prevServerTime;
+    smoothedInterval = smoothedInterval * 0.85 + raw * 0.15;
+  }
 
   // Snapshot my combo before update (for sound detection)
   const myPrevCombo = playerStates.get(myPlayerId)?.combo ?? 0;
@@ -866,8 +874,7 @@ function renderFrame() {
   let alpha = 0;
   if (prevPositions.size > 0 && lastServerTime > 0) {
     const elapsed = performance.now() - lastServerTime;
-    const interval = lastServerTime - prevServerTime;
-    alpha = interval > 0 ? Math.min(elapsed / interval, 1.5) : 1;
+    alpha = Math.min(elapsed / Math.max(smoothedInterval, 40), 1.0);
   }
 
   // Get interpolated states
