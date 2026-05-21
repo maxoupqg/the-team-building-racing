@@ -247,7 +247,6 @@ class Race {
         const type = this._powerUpTypeForPlayer(player);
         this._applyPowerUp(player, type);
         player.powerUpCounts[type] = (player.powerUpCounts[type] || 0) + 1;
-        console.log(`[POWERUP] ${player.name} (rank ${this._rankOf(player)}) picked up ${type}`);
         this.io.to(this.roomCode).emit('powerup_taken', { puId: pu.id, playerId: player.id, type });
       }
     }
@@ -277,7 +276,6 @@ class Race {
       // Evaluate when player has cleared the window end
       if (player.y > obs.y + OBSTACLE_WINDOW_END) {
         const result = pObs.actionDone ? 'SUCCESS' : 'MISS';
-        console.log(`[${result}] player=${player.name} obs#${obs.id} type=${obs.type} playerY=${Math.round(player.y)} obsY=${obs.y} state=${player.state} x=${Math.round(player.x)} actionDone=${pObs.actionDone}`);
         if (pObs.actionDone) {
           player.combo = Math.min(player.combo + 1, 99);
           if (player.combo > player.maxCombo) player.maxCombo = player.combo;
@@ -285,7 +283,6 @@ class Race {
           // Shield absorbs the miss
           if (player.shielded) {
             player.shielded = false;
-            console.log(`[SHIELD] ${player.name} combo saved`);
           } else {
             player.combo = 0;
           }
