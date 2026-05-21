@@ -10,6 +10,9 @@ const app    = express();
 const server = http.createServer(app);
 const io     = new Server(server, {
   cors: { origin: '*' },
+  transports:    ['websocket'],
+  pingInterval:  25000,
+  pingTimeout:   20000,
 });
 
 // Serve static files from public/

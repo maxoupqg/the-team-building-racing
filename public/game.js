@@ -6,7 +6,7 @@
 'use strict';
 
 // ── Socket ───────────────────────────────────────────────────────────────────
-const socket = io();
+const socket = io({ transports: ['websocket'] });
 
 // ── Game constants (mirrored from server, overwritten by race_start) ─────────
 let C = {
