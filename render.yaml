@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: the-team-building-racing
+    env: node
+    buildCommand: npm install
+    startCommand: npm start
+    plan: free
