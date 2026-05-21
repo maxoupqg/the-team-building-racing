@@ -130,10 +130,15 @@ let raceNumber   = 0;
 let obstacles        = [];
 let playerStates     = new Map();   // id -> { x, y, state, combo, speed, finished, progress, name, color }
 let playerIndexMap   = new Map();   // short index -> socket id
-let prevPositions    = new Map();   // id -> { x, y } snapshot from previous game_state (for interpolation)
-let lastServerTime   = 0;
-let prevServerTime   = 0;
 let rafId            = null;
+
+// Render buffer — store last N server states with server timestamps
+// Rendering happens RENDER_DELAY ms behind the server stream to absorb jitter
+const RENDER_DELAY   = 120;  // ms behind server
+const BUFFER_SIZE    = 30;   // ~1.5s at 20Hz
+let stateBuffer      = [];   // [{ t: serverMs, states: Map<id,{x,y,...}> }]
+let clockOffset      = 0;    // running estimate of (performance.now() - serverTime)
+let clockSamples     = 0;
 
 // Input state
 let input = { left: false, right: false, jump: false, slide: false, attack: false };
@@ -157,9 +162,6 @@ let commentPrevComboMap  = new Map();
 // Combo particles
 let comboParticles        = [];  // { x, y, vx, vy, life, color, size }
 let particlePrevCombo     = 0;
-
-// Interpolation smoothing
-let smoothedInterval      = 50;  // EWMA of inter-packet arrival time, starts at expected 50ms
 
 // Power-ups
 let powerUps              = [];  // received from server via race_start
@@ -676,10 +678,9 @@ socket.on('race_start', (data) => {
   // Reset input
   input = { left: false, right: false, jump: false, slide: false, attack: false };
   prevInputJson = '';
-  prevPositions    = new Map();
-  lastServerTime   = 0;
-  prevServerTime   = 0;
-  smoothedInterval = 50;
+  stateBuffer  = [];
+  clockOffset  = 0;
+  clockSamples = 0;
   finishNotifications  = [];
   commentatorMessages  = [];
   commentPrevLeaderId  = null;
@@ -706,42 +707,43 @@ socket.on('race_start', (data) => {
 const STATE_NAMES = ['running', 'jumping', 'sliding', 'attacking'];
 
 socket.on('game_state', (data) => {
-  // Snapshot current positions for interpolation before overwriting
-  prevPositions = new Map();
-  for (const [id, p] of playerStates) prevPositions.set(id, { x: p.x, y: p.y });
+  // Update server→client clock offset estimate (running average, stabilises after ~20 samples)
+  clockSamples++;
+  const sample = performance.now() - data.t;
+  clockOffset += (sample - clockOffset) / Math.min(clockSamples, 20);
 
-  prevServerTime = lastServerTime;
-  lastServerTime = performance.now();
-  if (prevServerTime > 0) {
-    const raw = lastServerTime - prevServerTime;
-    smoothedInterval = smoothedInterval * 0.85 + raw * 0.15;
-  }
-
-  // Snapshot my combo before update (for sound detection)
+  // Parse compact rows and build a snapshot for this tick
   const myPrevCombo = playerStates.get(myPlayerId)?.combo ?? 0;
+  const snap = new Map();
 
-  // Parse compact array rows: [idx, x, y, stateCode, combo, maxCombo, speed, progress×10000, boostTimer, shielded, slowTimer]
   for (const row of data.p) {
     const id = playerIndexMap.get(row[0]);
     if (!id) continue;
+    const s = {
+      x: row[1], y: row[2],
+      state:      STATE_NAMES[row[3]] || 'running',
+      combo:      row[4],
+      maxCombo:   row[5],
+      speed:      row[6],
+      progress:   row[7] / 10000,
+      boostTimer: row[8],
+      shielded:   row[9] === 1,
+      slowTimer:  row[10],
+    };
+    snap.set(id, s);
+    // Keep playerStates up to date for sounds / events
     const p = playerStates.get(id);
-    if (!p) continue;
-    p.x          = row[1];
-    p.y          = row[2];
-    p.state      = STATE_NAMES[row[3]] || 'running';
-    p.combo      = row[4];
-    p.maxCombo   = row[5];
-    p.speed      = row[6];
-    p.progress   = row[7] / 10000;
-    p.boostTimer = row[8];
-    p.shielded   = row[9] === 1;
-    p.slowTimer  = row[10];
+    if (p) Object.assign(p, s);
   }
 
-  // Combo sounds for my player
+  // Push snapshot into render buffer
+  stateBuffer.push({ t: data.t, states: snap });
+  if (stateBuffer.length > BUFFER_SIZE) stateBuffer.shift();
+
+  // Combo sounds
   const myNowCombo = playerStates.get(myPlayerId)?.combo ?? 0;
-  if (myNowCombo > myPrevCombo)          soundComboTick(myNowCombo);
-  else if (myPrevCombo > 0 && myNowCombo === 0) soundComboMiss();
+  if (myNowCombo > myPrevCombo)                  soundComboTick(myNowCombo);
+  else if (myPrevCombo > 0 && myNowCombo === 0)  soundComboMiss();
 
   checkCommentatorEvents([...playerStates.values()]);
 });
@@ -870,15 +872,7 @@ function renderFrame() {
   const myPlayer = playerStates.get(myPlayerId);
   if (!myPlayer) return;
 
-  // Interpolation factor
-  let alpha = 0;
-  if (prevPositions.size > 0 && lastServerTime > 0) {
-    const elapsed = performance.now() - lastServerTime;
-    alpha = Math.min(elapsed / Math.max(smoothedInterval, 40), 1.0);
-  }
-
-  // Get interpolated states
-  const interp = getInterpolatedStates(alpha);
+  const interp = getBufferedStates();
   const myInterp = interp.get(myPlayerId) || myPlayer;
 
   // Detect miss (combo reset) → trigger screen shake
@@ -934,19 +928,41 @@ function renderFrame() {
   drawFinishNotifications();
 }
 
-function getInterpolatedStates(alpha) {
+function getBufferedStates() {
+  // Target: server time we want to render = serverNow - RENDER_DELAY
+  const renderT = performance.now() - clockOffset - RENDER_DELAY;
+
+  // Need at least 2 snapshots to interpolate
+  if (stateBuffer.length < 2) {
+    return new Map([...playerStates].map(([id, p]) => [id, { ...p }]));
+  }
+
+  // Find the two snapshots bracketing renderT
+  let lo = 0;
+  for (let i = 1; i < stateBuffer.length; i++) {
+    if (stateBuffer[i].t <= renderT) lo = i;
+    else break;
+  }
+  const hi = Math.min(lo + 1, stateBuffer.length - 1);
+  const a  = stateBuffer[lo];
+  const b  = stateBuffer[hi];
+
+  const alpha = (a === b || b.t === a.t) ? 1
+    : Math.max(0, Math.min(1, (renderT - a.t) / (b.t - a.t)));
+
   const result = new Map();
   for (const [id, cur] of playerStates) {
-    const prev = prevPositions.get(id);
-    if (!prev) {
-      result.set(id, { ...cur });
-      continue;
+    const sa = a.states.get(id);
+    const sb = b.states.get(id);
+    if (!sa || !sb) {
+      result.set(id, { ...cur, ...(sb || sa || {}) });
+    } else {
+      result.set(id, {
+        ...cur, ...sb,
+        x: lerp(sa.x, sb.x, alpha),
+        y: lerp(sa.y, sb.y, alpha),
+      });
     }
-    result.set(id, {
-      ...cur,
-      x: lerp(prev.x, cur.x, alpha),
-      y: lerp(prev.y, cur.y, alpha),
-    });
   }
   return result;
 }
