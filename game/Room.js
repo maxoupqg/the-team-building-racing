@@ -11,12 +11,10 @@ function comboPointsBonus(maxCombo) {
   return 0;
 }
 
-// Points awarded by finish position (1-indexed)
-function pointsForPosition(pos) {
-  const table = [10, 8, 6, 5, 4, 3, 2, 1];
-  if (pos <= 0) return 0;
-  if (pos <= table.length) return table[pos - 1];
-  return 1;
+// Points awarded by finish position — triangular scale, last=0, gaps grow toward 1st
+function pointsForPosition(pos, total) {
+  const rankFromLast = total - pos;
+  return rankFromLast * (rankFromLast + 1) / 2;
 }
 
 class Room {
@@ -243,7 +241,7 @@ class Room {
       const standing = this.standings.get(playerId);
       if (!standing || !pState) continue;
 
-      const pts        = pointsForPosition(position);
+      const pts        = pointsForPosition(position, finishOrder.length);
       const comboBonus = comboPointsBonus(pState.maxCombo || 0);
 
       // Streak bonus: +3 for each consecutive win after the first
