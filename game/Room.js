@@ -249,7 +249,7 @@ class Room {
       // Streak bonus: +3 for each consecutive win after the first
       let streakBonus = 0;
       if (position === 1) {
-        standing.streak++;
+        standing.streak = Math.min(standing.streak + 1, 3);
         if (standing.streak > 1) {
           streakBonus = (standing.streak - 1) * 3;
         }
