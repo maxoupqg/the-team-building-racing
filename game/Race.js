@@ -340,13 +340,17 @@ class Race {
       case 'shield':
         player.shielded = true;
         break;
-      case 'bomb':
-        for (const [id, p] of this.players) {
-          if (id !== player.id && !p.finished) {
-            p.slowTimer = Math.max(p.slowTimer, SLOW_DUR);
-          }
+      case 'bomb': {
+        // Ralentit les 5 joueurs les plus proches devant le lanceur
+        const targets = [...this.players.values()]
+          .filter(p => p.id !== player.id && !p.finished && p.progress > player.progress)
+          .sort((a, b) => a.progress - b.progress)
+          .slice(0, 5);
+        for (const t of targets) {
+          t.slowTimer = Math.max(t.slowTimer, SLOW_DUR);
         }
         break;
+      }
     }
   }
 
@@ -372,15 +376,20 @@ class Race {
     const rank   = active.sort((a, b) => b.progress - a.progress).findIndex(p => p.id === player.id) + 1;
     const relPos = (rank - 1) / (total - 1); // 0 = premier, 1 = dernier
 
-    if (relPos < 0.25) {
+    const r = Math.random();
+    if (relPos < 0.20) {
+      // Top 20% : boost ou bouclier uniquement, jamais de bombe
+      return r < 0.50 ? 'boost' : 'shield';
+    } else if (relPos < 0.60) {
+      // Milieu : mixte
+      if (r < 0.50) return 'boost';
+      if (r < 0.80) return 'shield';
       return 'bomb';
-    } else if (relPos < 0.5) {
-      return Math.random() < 0.5 ? 'shield' : 'bomb';
     } else {
-      const r = Math.random();
-      if (r < 0.60) return 'boost';
-      if (r < 0.85) return 'shield';
-      return 'bomb';
+      // Fond 40% : surtout des bombes
+      if (r < 0.60) return 'bomb';
+      if (r < 0.90) return 'boost';
+      return 'shield';
     }
   }
 
