@@ -16,13 +16,15 @@ function weightedPick(rng, weights) {
 }
 
 // Phase thresholds (fraction of usable track)
-const PHASE2 = 0.30;  // warm-up ends
-const PHASE3 = 0.72;  // sprint begins
+const PHASE1B = 0.15;  // intro ends, découverte commence
+const PHASE2  = 0.30;  // warm-up ends
+const PHASE3  = 0.72;  // sprint begins
 
 // Type weights per phase: [log, barrier, wall_left, wall_right, crate]
-const W1 = [0.50, 0.50, 0,    0,    0   ];  // phase 1 — simple only
-const W2 = [0.22, 0.22, 0.18, 0.18, 0.20];  // phase 2 — balanced
-const W3 = [0.12, 0.12, 0.25, 0.25, 0.26];  // phase 3 — walls/crates heavy
+const W1A = [0.50, 0.50, 0,    0,    0   ];  // phase 1a — intro : log/barrier uniquement
+const W1B = [0.30, 0.30, 0.10, 0.10, 0.20];  // phase 1b — découverte : tous en facile
+const W2  = [0.22, 0.22, 0.18, 0.18, 0.20];  // phase 2 — équilibré
+const W3  = [0.12, 0.12, 0.25, 0.25, 0.26];  // phase 3 — murs/caisses dominant
 
 /**
  * Generate obstacles for a race track using a seeded RNG.
@@ -44,12 +46,14 @@ function generateObstacles(seed, trackLength) {
 
     // Phase-based type selection and spacing
     let weights, minSpacing, maxSpacing;
-    if (progress < PHASE2) {
-      weights = W1; minSpacing = 950; maxSpacing = 1300;
+    if (progress < PHASE1B) {
+      weights = W1A; minSpacing = 950; maxSpacing = 1300;
+    } else if (progress < PHASE2) {
+      weights = W1B; minSpacing = 850; maxSpacing = 1150;
     } else if (progress < PHASE3) {
-      weights = W2; minSpacing = 700; maxSpacing = 1000;
+      weights = W2;  minSpacing = 700; maxSpacing = 1000;
     } else {
-      weights = W3; minSpacing = 550; maxSpacing = 720;
+      weights = W3;  minSpacing = 550; maxSpacing = 720;
     }
 
     const type = OBSTACLE_TYPES[weightedPick(rng, weights)];
@@ -57,13 +61,15 @@ function generateObstacles(seed, trackLength) {
 
     if (type === 'wall_left') {
       x = -70;
-      width = Math.round(140 + progress * 80);
+      // Phase 1b : largeur minimum pour un gap confortable
+      width = progress < PHASE2 ? 140 : Math.round(140 + progress * 80);
     } else if (type === 'wall_right') {
       x = 70;
-      width = Math.round(140 + progress * 80);
+      width = progress < PHASE2 ? 140 : Math.round(140 + progress * 80);
     } else if (type === 'crate') {
       let crateCount;
-      if      (progress < PHASE2 + 0.15) crateCount = 1;
+      if      (progress < PHASE2)        crateCount = 1;  // phase 1b : toujours 1 caisse
+      else if (progress < PHASE2 + 0.15) crateCount = 1;
       else if (progress < PHASE3)        crateCount = 2;
       else if (progress < 0.88)          crateCount = 3;
       else                               crateCount = 5;
