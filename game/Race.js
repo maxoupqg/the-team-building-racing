@@ -152,20 +152,28 @@ class Race {
   _tick() {
     if (!this.running) return;
 
-    // Rubber-banding: find leader progress once per tick
-    const leaderProgress = Math.max(...[...this.players.values()].map(p => p.progress));
+    // Compute rank info once per tick — sorted active players + relPos map
+    const active = [...this.players.values()].filter(p => !p.finished);
+    active.sort((a, b) => b.progress - a.progress);
+    const total = active.length;
+    const relPosMap = new Map();
+    for (let i = 0; i < total; i++) {
+      relPosMap.set(active[i].id, total <= 1 ? 0 : i / (total - 1));
+    }
+    const leaderProgress = total > 0 ? active[0].progress : 0;
 
     for (const player of this.players.values()) {
       if (player.finished) continue;
-      this._updatePlayer(player, leaderProgress);
+      this._updatePlayer(player, leaderProgress, relPosMap);
     }
 
-    // Sync per-player visible power-ups (rank can change each tick)
+    // Sync per-player visible power-ups using pre-computed relPos
     for (const player of this.players.values()) {
       if (player.finished) continue;
+      const threshold = Math.round((0.3 + (relPosMap.get(player.id) ?? 0) * 0.7) * 10);
       for (const pu of this.powerUps) {
         if (player.processedPowerUps.has(pu.id)) continue;
-        const isVisible  = this._isPowerUpVisibleFor(player, pu);
+        const isVisible  = (pu.id % 10) < threshold;
         const wasVisible = player.visiblePowerUpIds.has(pu.id);
         if (isVisible && !wasVisible) {
           player.visiblePowerUpIds.add(pu.id);
@@ -208,7 +216,7 @@ class Race {
     }
   }
 
-  _updatePlayer(player, leaderProgress) {
+  _updatePlayer(player, leaderProgress, relPosMap) {
     // 1. Update stateTimer, revert to 'running' when expired
     if (player.state !== 'running') {
       player.stateTimer -= DT * 1000; // convert DT (seconds) to ms
@@ -257,12 +265,14 @@ class Race {
     player.y += player.speed * DT;
 
     // 5. Power-up pickup (each player independent, only if visible for this player)
+    const relPos      = relPosMap.get(player.id) ?? 0;
+    const puThreshold = Math.round((0.3 + relPos * 0.7) * 10);
     for (const pu of this.powerUps) {
       if (player.processedPowerUps.has(pu.id)) continue;
-      if (!this._isPowerUpVisibleFor(player, pu)) continue;
+      if ((pu.id % 10) >= puThreshold) continue;
       if (Math.abs(player.y - pu.y) < POWERUP_RADIUS) {
         player.processedPowerUps.add(pu.id);
-        const type = this._powerUpTypeForPlayer(player);
+        const type = this._powerUpTypeForPlayer(relPos);
         this._applyPowerUp(player, type);
         player.powerUpCounts[type] = (player.powerUpCounts[type] || 0) + 1;
         this.io.to(this.roomCode).emit('powerup_taken', { puId: pu.id, playerId: player.id, type });
@@ -354,28 +364,7 @@ class Race {
     }
   }
 
-  _isPowerUpVisibleFor(player, pu) {
-    const active = [...this.players.values()].filter(p => !p.finished);
-    const total  = active.length;
-    if (total <= 1) return true;
-    const rank      = active.sort((a, b) => b.progress - a.progress).findIndex(p => p.id === player.id) + 1;
-    const relPos    = (rank - 1) / (total - 1);
-    const threshold = Math.round((0.3 + relPos * 0.7) * 10);
-    return (pu.id % 10) < threshold;
-  }
-
-  _rankOf(player) {
-    const active = [...this.players.values()].filter(p => !p.finished);
-    return active.sort((a, b) => b.progress - a.progress).findIndex(p => p.id === player.id) + 1;
-  }
-
-  _powerUpTypeForPlayer(player) {
-    const active = [...this.players.values()].filter(p => !p.finished);
-    const total  = active.length;
-    if (total <= 1) return 'boost';
-    const rank   = active.sort((a, b) => b.progress - a.progress).findIndex(p => p.id === player.id) + 1;
-    const relPos = (rank - 1) / (total - 1); // 0 = premier, 1 = dernier
-
+  _powerUpTypeForPlayer(relPos) {
     const r = Math.random();
     if (relPos < 0.20) {
       // Top 20% : boost ou bouclier uniquement, jamais de bombe
