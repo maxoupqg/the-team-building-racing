@@ -286,8 +286,11 @@ class Race {
 
       const pObs = player.pendingObstacles.get(obs.id);
 
-      // Latch: once correct action detected, keep it true
-      if (!pObs.actionDone) {
+      // Walls: re-evaluate every tick (position at crossing matters, not early latch)
+      // Other obstacles: latch on first success
+      if (obs.type === 'wall_left' || obs.type === 'wall_right') {
+        pObs.actionDone = this._checkAction(player, obs);
+      } else if (!pObs.actionDone) {
         pObs.actionDone = this._checkAction(player, obs);
       }
 
@@ -396,8 +399,8 @@ class Race {
     switch (obs.type) {
       case 'log':        return player.state === 'jumping';
       case 'barrier':    return player.state === 'sliding';
-      case 'wall_left':  return player.x > (obs.width || 140) - 130;
-      case 'wall_right': return player.x < 130 - (obs.width || 140);
+      case 'wall_left':  return player.x > (obs.width || 140) - 132;
+      case 'wall_right': return player.x < 132 - (obs.width || 140);
       case 'crate': {
         const CRATE_HIT_R = 43; // crate half-width (25) + player radius (18)
         const positions = obs.cratePositions || [{ x: obs.x }];
