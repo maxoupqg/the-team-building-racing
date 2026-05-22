@@ -164,8 +164,7 @@ let comboParticles        = [];  // { x, y, vx, vy, life, color, size }
 let particlePrevCombo     = 0;
 
 // Power-ups
-let powerUps              = [];  // received from server via race_start
-let myPickedUpPowerUps    = new Set();  // ids picked up by THIS player
+let visiblePowerUps       = new Map(); // id -> pu, unlocked by server per-player
 let powerUpsEnabled       = false;
 
 // Teams
@@ -690,8 +689,7 @@ socket.on('race_start', (data) => {
   shakePrevCombo       = 0;
   comboParticles       = [];
   particlePrevCombo    = 0;
-  powerUps             = data.powerUps || [];
-  myPickedUpPowerUps   = new Set();
+  visiblePowerUps      = new Map();
 
   // Show countdown GO then start rendering
   soundCountdown(0);
@@ -798,9 +796,13 @@ socket.on('race_results', (data) => {
   renderResults(data);
 });
 
+socket.on('powerup_unlocked', (data) => {
+  visiblePowerUps.set(data.pu.id, data.pu);
+});
+
 socket.on('powerup_taken', (data) => {
+  visiblePowerUps.delete(data.puId);
   if (data.playerId === myPlayerId) {
-    myPickedUpPowerUps.add(data.puId);
     soundPowerUp();
     const labels = { boost: '🚀 Boost !', shield: '🛡️ Bouclier !', bomb: '💣 Bombe lancée !' };
     finishNotifications.push({
@@ -1363,22 +1365,11 @@ function drawProgressBar(interp) {
 }
 
 function drawPowerUps(myInterp) {
-  if (powerUps.length === 0) return;
-
-  // Position-based visibility: fraction of power-ups visible
-  const myProgress = myInterp.progress || 0;
-  const progresses = [...playerStates.values()].map(p => p.progress || 0);
-  const rank       = progresses.filter(p => p > myProgress).length + 1;
-  const total      = Math.max(progresses.length, 1);
-  const relPos     = total > 1 ? (rank - 1) / (total - 1) : 1; // 0=first, 1=last
-  const fraction   = 0.3 + relPos * 0.7; // 0.3 for leader, 1.0 for last
-  const threshold  = Math.round(fraction * 10);
+  if (visiblePowerUps.size === 0) return;
 
   const now = Date.now();
   ctx.save();
-  for (const pu of powerUps) {
-    if (myPickedUpPowerUps.has(pu.id)) continue;
-    if ((pu.id % 10) >= threshold) continue; // not visible at this rank
+  for (const pu of visiblePowerUps.values()) {
 
     const canvasY = PLAYER_RENDER_Y - (pu.y - myInterp.y);
     if (canvasY < -50 || canvasY > CANVAS_H + 50) continue;

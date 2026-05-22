@@ -69,6 +69,7 @@ class Race {
         shielded:          false,
         slowTimer:         0,
         processedPowerUps: new Set(),
+        visiblePowerUpIds: new Set(),
         powerUpCounts:     { boost: 0, shield: 0, bomb: 0 },
       });
     }
@@ -94,7 +95,7 @@ class Race {
     this.io.to(this.roomCode).emit('race_start', {
       seed:        this.seed,
       obstacles:   this.obstacles,
-      powerUps:    this.powerUps,
+      powerUps:    [],
       trackLength: TRACK_LENGTH,
       players:     [...this.players.values()].map(p => ({
         i:     this.playerIndex.get(p.id),
@@ -157,6 +158,19 @@ class Race {
     for (const player of this.players.values()) {
       if (player.finished) continue;
       this._updatePlayer(player, leaderProgress);
+    }
+
+    // Notify individual players about newly visible power-ups
+    for (const player of this.players.values()) {
+      if (player.finished) continue;
+      for (const pu of this.powerUps) {
+        if (player.visiblePowerUpIds.has(pu.id)) continue;
+        if (player.processedPowerUps.has(pu.id)) continue;
+        if (this._isPowerUpVisibleFor(player, pu)) {
+          player.visiblePowerUpIds.add(pu.id);
+          this.io.to(player.id).emit('powerup_unlocked', { pu });
+        }
+      }
     }
 
     // Broadcast compact game state
