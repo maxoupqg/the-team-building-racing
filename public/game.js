@@ -134,8 +134,8 @@ let rafId            = null;
 
 // Render buffer — store last N server states with server timestamps
 // Rendering happens RENDER_DELAY ms behind the server stream to absorb jitter
-const RENDER_DELAY   = 90;   // ms behind server
-const BUFFER_SIZE    = 30;   // ~1.5s at 20Hz
+const RENDER_DELAY   = 65;   // ms behind server
+const BUFFER_SIZE    = 45;   // ~1.5s at 30Hz
 let stateBuffer      = [];   // [{ t: serverMs, states: Map<id,{x,y,...}> }]
 let clockOffset      = 0;    // running estimate of (performance.now() - serverTime)
 let clockSamples     = 0;
