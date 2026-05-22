@@ -800,6 +800,10 @@ socket.on('powerup_unlocked', (data) => {
   visiblePowerUps.set(data.pu.id, data.pu);
 });
 
+socket.on('powerup_locked', (data) => {
+  visiblePowerUps.delete(data.puId);
+});
+
 socket.on('powerup_taken', (data) => {
   visiblePowerUps.delete(data.puId);
   if (data.playerId === myPlayerId) {

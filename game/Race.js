@@ -160,15 +160,19 @@ class Race {
       this._updatePlayer(player, leaderProgress);
     }
 
-    // Notify individual players about newly visible power-ups
+    // Sync per-player visible power-ups (rank can change each tick)
     for (const player of this.players.values()) {
       if (player.finished) continue;
       for (const pu of this.powerUps) {
-        if (player.visiblePowerUpIds.has(pu.id)) continue;
         if (player.processedPowerUps.has(pu.id)) continue;
-        if (this._isPowerUpVisibleFor(player, pu)) {
+        const isVisible  = this._isPowerUpVisibleFor(player, pu);
+        const wasVisible = player.visiblePowerUpIds.has(pu.id);
+        if (isVisible && !wasVisible) {
           player.visiblePowerUpIds.add(pu.id);
           this.io.to(player.id).emit('powerup_unlocked', { pu });
+        } else if (!isVisible && wasVisible) {
+          player.visiblePowerUpIds.delete(pu.id);
+          this.io.to(player.id).emit('powerup_locked', { puId: pu.id });
         }
       }
     }
