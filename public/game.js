@@ -37,11 +37,13 @@ function createRNG(seed) {
 
 // ── Obstacle generator (must match server) ────────────────────────────────────
 const OBSTACLE_TYPES = ['log', 'barrier', 'wall_left', 'wall_right', 'crate'];
-const OBS_PHASE2 = 0.30;
-const OBS_PHASE3 = 0.72;
-const OBS_W1 = [0.50, 0.50, 0,    0,    0   ];
-const OBS_W2 = [0.22, 0.22, 0.18, 0.18, 0.20];
-const OBS_W3 = [0.12, 0.12, 0.25, 0.25, 0.26];
+const OBS_PHASE1B = 0.15;
+const OBS_PHASE2  = 0.30;
+const OBS_PHASE3  = 0.72;
+const OBS_W1A = [0.50, 0.50, 0,    0,    0   ];
+const OBS_W1B = [0.30, 0.30, 0.10, 0.10, 0.20];
+const OBS_W2  = [0.22, 0.22, 0.18, 0.18, 0.20];
+const OBS_W3  = [0.12, 0.12, 0.25, 0.25, 0.26];
 
 function weightedPick(rng, weights) {
   const r = rng();
@@ -63,22 +65,24 @@ function generateObstacles(seed, trackLength) {
   while (y < END_Y) {
     const progress = Math.min(1, (y - START_Y) / (END_Y - START_Y));
     let weights, minSpacing, maxSpacing;
-    if (progress < OBS_PHASE2) {
-      weights = OBS_W1; minSpacing = 950; maxSpacing = 1300;
+    if (progress < OBS_PHASE1B) {
+      weights = OBS_W1A; minSpacing = 950; maxSpacing = 1300;
+    } else if (progress < OBS_PHASE2) {
+      weights = OBS_W1B; minSpacing = 850; maxSpacing = 1150;
     } else if (progress < OBS_PHASE3) {
-      weights = OBS_W2; minSpacing = 700; maxSpacing = 1000;
+      weights = OBS_W2;  minSpacing = 700; maxSpacing = 1000;
     } else {
-      weights = OBS_W3; minSpacing = 550; maxSpacing = 720;
+      weights = OBS_W3;  minSpacing = 550; maxSpacing = 720;
     }
     const type = OBSTACLE_TYPES[weightedPick(rng, weights)];
     let x = 0, width, cratePositions;
     if (type === 'wall_left') {
-      x = -70; width = Math.round(140 + progress * 80);
+      x = -70; width = progress < OBS_PHASE2 ? 140 : Math.round(140 + progress * 80);
     } else if (type === 'wall_right') {
-      x = 70;  width = Math.round(140 + progress * 80);
+      x = 70;  width = progress < OBS_PHASE2 ? 140 : Math.round(140 + progress * 80);
     } else if (type === 'crate') {
       let crateCount;
-      if      (progress < OBS_PHASE2 + 0.15) crateCount = 1;
+      if      (progress < OBS_PHASE2)        crateCount = 1;
       else if (progress < OBS_PHASE3)        crateCount = 2;
       else if (progress < 0.88)              crateCount = 3;
       else                                   crateCount = 5;
@@ -991,15 +995,17 @@ function drawTrack(myInterp) {
   // Phase color overlays — boundaries derived from same constants as obstacle generator
   const START_Y  = 900;
   const END_Y    = C.TRACK_LENGTH - 700;
-  const PHASE2_Y = OBS_PHASE2 * (END_Y - START_Y) + START_Y;  // ~15 420
-  const PHASE3_Y = OBS_PHASE3 * (END_Y - START_Y) + START_Y;  // ~35 748
-  const playerY  = myInterp ? myInterp.y : 0;
+  const PHASE1B_Y = OBS_PHASE1B * (END_Y - START_Y) + START_Y;
+  const PHASE2_Y  = OBS_PHASE2  * (END_Y - START_Y) + START_Y;
+  const PHASE3_Y  = OBS_PHASE3  * (END_Y - START_Y) + START_Y;
+  const playerY   = myInterp ? myInterp.y : 0;
 
   // [from, to, color]  — track coords, ascending
   const PHASES = [
-    [0,        PHASE2_Y,          'rgba(76,175,80,0.18)' ],  // vert
-    [PHASE2_Y, PHASE3_Y,          'rgba(255,235,59,0.13)'],  // jaune
-    [PHASE3_Y, C.TRACK_LENGTH,    'rgba(255,152,0,0.16)' ],  // orange
+    [0,          PHASE1B_Y,         'rgba(76,175,80,0.18)' ],  // vert clair — intro
+    [PHASE1B_Y,  PHASE2_Y,          'rgba(76,175,80,0.10)' ],  // vert foncé — découverte
+    [PHASE2_Y,   PHASE3_Y,          'rgba(255,235,59,0.13)'],  // jaune
+    [PHASE3_Y,   C.TRACK_LENGTH,    'rgba(255,152,0,0.16)' ],  // orange
   ];
 
   ctx.save();
@@ -1319,16 +1325,19 @@ function drawProgressBar(interp) {
   ctx.fillRect(bx, SIDEBAR_Y_TOP, bw, SIDEBAR_H);
 
   // Phase color bands on the sidebar
-  const sb_END_Y    = C.TRACK_LENGTH - 700;
-  const sb_PHASE2_p = (OBS_PHASE2 * (sb_END_Y - 900) + 900) / C.TRACK_LENGTH;
-  const sb_PHASE3_p = (OBS_PHASE3 * (sb_END_Y - 900) + 900) / C.TRACK_LENGTH;
-  // progress→sidebarY: SIDEBAR_Y_TOP + (1-p)*SIDEBAR_H
-  const sb_ph2Y = SIDEBAR_Y_TOP + (1 - sb_PHASE2_p) * SIDEBAR_H;
-  const sb_ph3Y = SIDEBAR_Y_TOP + (1 - sb_PHASE3_p) * SIDEBAR_H;
+  const sb_END_Y     = C.TRACK_LENGTH - 700;
+  const sb_ph1b_p = (OBS_PHASE1B * (sb_END_Y - 900) + 900) / C.TRACK_LENGTH;
+  const sb_PHASE2_p = (OBS_PHASE2  * (sb_END_Y - 900) + 900) / C.TRACK_LENGTH;
+  const sb_PHASE3_p = (OBS_PHASE3  * (sb_END_Y - 900) + 900) / C.TRACK_LENGTH;
+  const sb_ph1bY = SIDEBAR_Y_TOP + (1 - sb_ph1b_p) * SIDEBAR_H;
+  const sb_ph2Y  = SIDEBAR_Y_TOP + (1 - sb_PHASE2_p) * SIDEBAR_H;
+  const sb_ph3Y  = SIDEBAR_Y_TOP + (1 - sb_PHASE3_p) * SIDEBAR_H;
   ctx.fillStyle = 'rgba(76,175,80,0.35)';
-  ctx.fillRect(bx, sb_ph2Y, bw, SIDEBAR_Y_BOT - sb_ph2Y);     // phase 1 (bottom)
+  ctx.fillRect(bx, sb_ph1bY, bw, SIDEBAR_Y_BOT - sb_ph1bY);    // phase 1a (bottom)
+  ctx.fillStyle = 'rgba(76,175,80,0.20)';
+  ctx.fillRect(bx, sb_ph2Y,  bw, sb_ph1bY - sb_ph2Y);           // phase 1b
   ctx.fillStyle = 'rgba(255,235,59,0.30)';
-  ctx.fillRect(bx, sb_ph3Y, bw, sb_ph2Y - sb_ph3Y);            // phase 2 (middle)
+  ctx.fillRect(bx, sb_ph3Y,  bw, sb_ph2Y - sb_ph3Y);            // phase 2 (middle)
   ctx.fillStyle = 'rgba(255,152,0,0.35)';
   ctx.fillRect(bx, SIDEBAR_Y_TOP, bw, sb_ph3Y - SIDEBAR_Y_TOP); // phase 3 (top)
 
