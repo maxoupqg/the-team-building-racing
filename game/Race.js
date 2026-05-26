@@ -296,11 +296,8 @@ class Race {
 
       const pObs = player.pendingObstacles.get(obs.id);
 
-      // Walls: re-evaluate every tick (position at crossing matters, not early latch)
-      // Other obstacles: latch on first success
-      if (obs.type === 'wall_left' || obs.type === 'wall_right') {
-        pObs.actionDone = this._checkAction(player, obs);
-      } else if (!pObs.actionDone) {
+      // Latch on first success — hitbox aligné sur le bord visuel + rayon joueur (w-132)
+      if (!pObs.actionDone) {
         pObs.actionDone = this._checkAction(player, obs);
       }
 
