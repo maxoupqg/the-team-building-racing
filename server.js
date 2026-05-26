@@ -17,6 +17,8 @@ const io     = new Server(server, {
 
 // Serve static files from public/
 app.use(express.static(path.join(__dirname, 'public')));
+// Expose shared game logic (seededRandom, ObstacleGenerator) to the browser
+app.use('/shared', express.static(path.join(__dirname, 'game')));
 
 // ── Room registry ────────────────────────────────────────────────────────────
 
