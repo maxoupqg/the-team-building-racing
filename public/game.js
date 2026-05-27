@@ -943,10 +943,10 @@ function drawTrack(myInterp) {
 
   // [from, to, color]  — track coords, ascending
   const PHASES = [
-    [0,          PHASE1B_Y,         'rgba(76,175,80,0.18)' ],  // vert clair — intro
-    [PHASE1B_Y,  PHASE2_Y,          'rgba(76,175,80,0.10)' ],  // vert foncé — découverte
-    [PHASE2_Y,   PHASE3_Y,          'rgba(255,235,59,0.13)'],  // jaune
-    [PHASE3_Y,   C.TRACK_LENGTH,    'rgba(255,152,0,0.16)' ],  // orange
+    [0,          PHASE1B_Y,         'rgba(76,175,80,0.08)' ],
+    [PHASE1B_Y,  PHASE2_Y,          'rgba(76,175,80,0.05)' ],
+    [PHASE2_Y,   PHASE3_Y,          'rgba(255,235,59,0.07)'],
+    [PHASE3_Y,   C.TRACK_LENGTH,    'rgba(255,152,0,0.09)' ],
   ];
 
   ctx.save();
