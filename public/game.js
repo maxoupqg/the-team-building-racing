@@ -33,6 +33,11 @@ roadTile.src = '/assets/track/road.png';
 const spriteRondin = new Image();
 spriteRondin.src = '/assets/sprites/rondin.png';
 
+const spriteBareerUp = new Image();
+spriteBareerUp.src = '/assets/sprites/bareer_up.png';
+const spriteBareerShadow = new Image();
+spriteBareerShadow.src = '/assets/sprites/bareer_shadow.png';
+
 // ── Canvas setup ─────────────────────────────────────────────────────────────
 const canvas = document.getElementById('gameCanvas');
 const ctx    = canvas.getContext('2d');
@@ -839,6 +844,7 @@ function renderFrame() {
   drawBackground();
   drawTrack(myInterp);
   drawLaneLines(myInterp);
+  drawObstaclesShadows(myInterp);
   drawObstacles(myInterp);
   drawPowerUps(myInterp);
   drawFinishLine(myInterp);
@@ -849,6 +855,7 @@ function renderFrame() {
 
   drawGhostPlayers(interp, myInterp);
   drawMyPlayer(myInterp, rb);
+  drawObstaclesFront(myInterp);
   drawComboParticles();
   ctx.restore();
 
@@ -1028,6 +1035,32 @@ function drawObstacles(myInterp) {
   }
 }
 
+// Shadows drawn before players (player passes over shadow)
+function drawObstaclesShadows(myInterp) {
+  for (const obs of obstacles) {
+    if (obs.type !== 'barrier') continue;
+    const cy = PLAYER_RENDER_Y - (obs.y - myInterp.y);
+    if (cy < -100 || cy > 700) continue;
+    if (spriteBareerShadow.complete && spriteBareerShadow.naturalHeight > 0) {
+      // Shadow starts at cy+20 (bottom edge of bareer_up, which is centered on cy)
+      ctx.drawImage(spriteBareerShadow, TRACK_LEFT, cy + 20, TRACK_RENDER_W, 40);
+    }
+  }
+}
+
+// Barrier bodies drawn after players (player passes under barrier)
+function drawObstaclesFront(myInterp) {
+  for (const obs of obstacles) {
+    if (obs.type !== 'barrier') continue;
+    const cy = PLAYER_RENDER_Y - (obs.y - myInterp.y);
+    if (cy < -100 || cy > 700) continue;
+    if (spriteBareerUp.complete && spriteBareerUp.naturalHeight > 0) {
+      // bareer_up centered on cy — 18px bar is at center of the 40px image
+      ctx.drawImage(spriteBareerUp, TRACK_LEFT, cy - 20, TRACK_RENDER_W, 40);
+    }
+  }
+}
+
 function drawObstacle(obs, cx, cy) {
   ctx.save();
   switch (obs.type) {
@@ -1041,18 +1074,11 @@ function drawObstacle(obs, cx, cy) {
       break;
     }
     case 'barrier': {
-      // Gray rectangle with red stripes, low (player slides under)
-      const bh = 18;
-      ctx.fillStyle = '#888';
-      ctx.fillRect(TRACK_LEFT, cy - bh / 2, TRACK_RENDER_W, bh);
-      // Red diagonal stripes
-      ctx.strokeStyle = '#e53935';
-      ctx.lineWidth = 3;
-      for (let sx = TRACK_LEFT - 10; sx < TRACK_RIGHT + 10; sx += 22) {
-        ctx.beginPath();
-        ctx.moveTo(sx, cy - bh / 2);
-        ctx.lineTo(sx + bh, cy + bh / 2);
-        ctx.stroke();
+      // Rendered in two separate passes (shadow before player, body after) — fallback only
+      if (!spriteBareerUp.complete || spriteBareerUp.naturalHeight === 0) {
+        const bh = 18;
+        ctx.fillStyle = '#888';
+        ctx.fillRect(TRACK_LEFT, cy - bh / 2, TRACK_RENDER_W, bh);
       }
       break;
     }
