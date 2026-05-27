@@ -30,6 +30,9 @@ let C = {
 const roadTile = new Image();
 roadTile.src = '/assets/track/road.png';
 
+const spriteRondin = new Image();
+spriteRondin.src = '/assets/sprites/rondin.png';
+
 // ── Canvas setup ─────────────────────────────────────────────────────────────
 const canvas = document.getElementById('gameCanvas');
 const ctx    = canvas.getContext('2d');
@@ -1029,17 +1032,11 @@ function drawObstacle(obs, cx, cy) {
   ctx.save();
   switch (obs.type) {
     case 'log': {
-      // Full track width brown rectangle, height 25px
-      ctx.fillStyle = '#8B4513';
-      ctx.fillRect(TRACK_LEFT, cy - 12, TRACK_RENDER_W, 25);
-      // Wood grain lines
-      ctx.strokeStyle = 'rgba(0,0,0,0.3)';
-      ctx.lineWidth = 1.5;
-      for (let lx = TRACK_LEFT + 20; lx < TRACK_RIGHT; lx += 35) {
-        ctx.beginPath();
-        ctx.moveTo(lx, cy - 11);
-        ctx.lineTo(lx, cy + 13);
-        ctx.stroke();
+      if (spriteRondin.complete && spriteRondin.naturalHeight > 0) {
+        ctx.drawImage(spriteRondin, TRACK_LEFT, cy - 25, TRACK_RENDER_W, 50);
+      } else {
+        ctx.fillStyle = '#8B4513';
+        ctx.fillRect(TRACK_LEFT, cy - 12, TRACK_RENDER_W, 25);
       }
       break;
     }
