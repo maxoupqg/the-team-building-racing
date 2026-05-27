@@ -835,7 +835,7 @@ function renderFrame() {
   }
   drawBackground();
   drawTrack(myInterp);
-  drawLaneLines();
+  drawLaneLines(myInterp);
   drawObstacles(myInterp);
   drawPowerUps(myInterp);
   drawFinishLine(myInterp);
@@ -963,18 +963,21 @@ function drawTrack(myInterp) {
   ctx.restore();
 }
 
-function drawLaneLines() {
+function drawLaneLines(myInterp) {
+  const playerY = myInterp ? myInterp.y : 0;
+  const dashLen = 30;
+  const gapLen  = 50;
+  const period  = dashLen + gapLen;
+  const offset  = playerY % period;
+
   ctx.save();
-  ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-  ctx.lineWidth = 1.5;
-  ctx.setLineDash([20, 18]);
-  // Left lane divider at track x=165 (canvas)
+  ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+  ctx.lineWidth = 3;
+  ctx.setLineDash([dashLen, gapLen]);
+  ctx.lineDashOffset = -offset;
   ctx.beginPath();
-  ctx.moveTo(165, 0); ctx.lineTo(165, CANVAS_H);
-  ctx.stroke();
-  // Right lane divider at track x=315 (canvas)
-  ctx.beginPath();
-  ctx.moveTo(315, 0); ctx.lineTo(315, CANVAS_H);
+  ctx.moveTo(TRACK_CENTER_X, 0);
+  ctx.lineTo(TRACK_CENTER_X, CANVAS_H);
   ctx.stroke();
   ctx.restore();
 }
