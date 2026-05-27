@@ -26,6 +26,10 @@ let C = {
 
 // createRNG, generateObstacles, OBS_PHASE1B/2/3 — chargés via /shared/seededRandom.js et /shared/ObstacleGenerator.js
 
+// ── Assets ────────────────────────────────────────────────────────────────────
+const roadTile = new Image();
+roadTile.src = '/assets/track/road.png';
+
 // ── Canvas setup ─────────────────────────────────────────────────────────────
 const canvas = document.getElementById('gameCanvas');
 const ctx    = canvas.getContext('2d');
@@ -911,9 +915,24 @@ function drawBackground() {
 }
 
 function drawTrack(myInterp) {
-  // Base track
-  ctx.fillStyle = '#333';
-  ctx.fillRect(TRACK_LEFT, 0, TRACK_RENDER_W, CANVAS_H);
+  const playerY = myInterp ? myInterp.y : 0;
+
+  // Scrolling road tile
+  if (roadTile.complete && roadTile.naturalHeight > 0) {
+    const tileH  = roadTile.naturalHeight;
+    const offset = playerY % tileH;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(TRACK_LEFT, 0, TRACK_RENDER_W, CANVAS_H);
+    ctx.clip();
+    for (let y = -tileH + offset; y < CANVAS_H + tileH; y += tileH) {
+      ctx.drawImage(roadTile, TRACK_LEFT, y, TRACK_RENDER_W, tileH);
+    }
+    ctx.restore();
+  } else {
+    ctx.fillStyle = '#333';
+    ctx.fillRect(TRACK_LEFT, 0, TRACK_RENDER_W, CANVAS_H);
+  }
 
   // Phase color overlays — boundaries derived from same constants as obstacle generator
   const START_Y  = 900;
@@ -921,7 +940,6 @@ function drawTrack(myInterp) {
   const PHASE1B_Y = OBS_PHASE1B * (END_Y - START_Y) + START_Y;
   const PHASE2_Y  = OBS_PHASE2  * (END_Y - START_Y) + START_Y;
   const PHASE3_Y  = OBS_PHASE3  * (END_Y - START_Y) + START_Y;
-  const playerY   = myInterp ? myInterp.y : 0;
 
   // [from, to, color]  — track coords, ascending
   const PHASES = [
