@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Team Racing</title>
   <link rel="stylesheet" href="style.css" />
+  <script src="/config.js"></script>
 </head>
 <body>
 
@@ -26,6 +27,7 @@
 
       <div class="welcome-buttons">
         <button id="btn-create" class="btn btn-primary">Créer une partie</button>
+        <button id="btn-join-unique" class="btn btn-primary hidden">Rejoindre</button>
       </div>
 
       <div class="divider"><span>ou</span></div>
@@ -77,11 +79,16 @@
         <button id="btn-rules" class="btn btn-small btn-outline">📖 Règles</button>
       </div>
 
+      <div class="ready-section">
+        <button id="btn-ready" class="btn btn-large btn-ready-off">✅ Je suis prêt !</button>
+        <div id="ready-countdown" class="ready-countdown hidden">🏁 Démarrage dans <span id="ready-seconds">10</span>s…</div>
+      </div>
+
       <div id="lobby-host-controls" class="lobby-controls hidden">
         <button id="btn-start-race" class="btn btn-primary btn-large">🏁 Lancer la course</button>
       </div>
-      <div id="lobby-waiting-msg" class="waiting-msg hidden">
-        En attente du chef de partie…
+      <div id="lobby-claim-host" class="lobby-controls hidden">
+        <button id="btn-claim-host" class="btn btn-secondary">👑 Prendre la main</button>
       </div>
 
       <div id="lobby-error" class="error-msg hidden"></div>
@@ -162,6 +169,7 @@
         </table>
       </div>
       <button id="btn-restart" class="btn btn-primary">Nouvelle partie</button>
+      <p id="session-waiting-msg" class="waiting-msg hidden">En attente du chef de partie…</p>
     </div>
   </div>
 

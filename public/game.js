@@ -7,6 +7,18 @@
 
 // ── Socket ───────────────────────────────────────────────────────────────────
 const socket = io({ transports: ['websocket'] });
+let uniqueSession = !!(window.GAME_CONFIG && window.GAME_CONFIG.uniqueSession);
+
+function applyUniqueSessionUI() {
+  document.body.classList.add('unique-session');
+}
+
+if (uniqueSession) applyUniqueSessionUI();
+
+socket.on('server_config', (data) => {
+  uniqueSession = !!data.uniqueSession;
+  if (uniqueSession) applyUniqueSessionUI();
+});
 
 // ── Game constants (mirrored from server, overwritten by race_start) ─────────
 let C = {
@@ -58,12 +70,13 @@ const SIDEBAR_H       = SIDEBAR_Y_BOT - SIDEBAR_Y_TOP;
 // ── State ─────────────────────────────────────────────────────────────────────
 let gameState = 'welcome';  // welcome | lobby | countdown | racing | results
 
-let myPlayerId   = null;
-let myRoomCode   = null;
-let myColor      = '#e94560';
-let myName       = '';
-let isHost       = false;
-let raceNumber   = 0;
+let myPlayerId    = null;
+let myReady       = false;
+let myRoomCode    = null;
+let myColor       = '#e94560';
+let myName        = '';
+let isHost        = false;
+let raceNumber    = 0;
 
 // Racing state
 let obstacles        = [];
@@ -270,8 +283,17 @@ document.getElementById('btn-join').addEventListener('click', () => {
   socket.emit('join_room', { roomCode: code, playerName: myName, playerColor: myColor });
 });
 
+document.getElementById('btn-join-unique').addEventListener('click', () => {
+  myName = document.getElementById('input-name').value.trim();
+  if (!myName) { showError('welcome-error', 'Entrez un pseudo.'); return; }
+  socket.emit('join_room', { playerName: myName, playerColor: myColor });
+});
+
 document.getElementById('input-name').addEventListener('keydown', e => {
-  if (e.key === 'Enter') document.getElementById('btn-create').click();
+  if (e.key === 'Enter') {
+    if (uniqueSession) document.getElementById('btn-join-unique').click();
+    else document.getElementById('btn-create').click();
+  }
 });
 
 document.getElementById('input-code').addEventListener('keydown', e => {
@@ -297,6 +319,14 @@ document.getElementById('btn-toggle-powerups').addEventListener('click', () => {
 document.getElementById('btn-toggle-teams').addEventListener('click', () => {
   if (!isHost) return;
   socket.emit('toggle_teams');
+});
+
+document.getElementById('btn-claim-host').addEventListener('click', () => {
+  socket.emit('claim_host');
+});
+
+document.getElementById('btn-ready').addEventListener('click', () => {
+  socket.emit('toggle_ready');
 });
 
 document.getElementById('btn-rules').addEventListener('click', () => {
@@ -367,9 +397,26 @@ function renderLobby(players, hostId, standings, raceNum, puEnabled, teams, tmMo
         <div class="player-dot" style="background:${p.color}"></div>
         <span>${escapeHtml(p.name)}</span>
         ${p.id === hostId ? '<span class="player-crown">👑</span>' : ''}
+        <span class="player-ready-icon">${p.ready ? '✅' : '⏳'}</span>
       `;
       list.appendChild(card);
     });
+  }
+
+  // Update ready button state
+  const me = players.find(p => p.id === myPlayerId);
+  myReady = me ? !!me.ready : false;
+  const btnReady = document.getElementById('btn-ready');
+  if (myReady) {
+    btnReady.textContent = '❌ Annuler';
+    btnReady.className = 'btn btn-large btn-ready-on';
+  } else {
+    btnReady.textContent = '✅ Je suis prêt !';
+    btnReady.className = 'btn btn-large btn-ready-off';
+  }
+  // Hide countdown if not all ready anymore
+  if (!players.every(p => p.ready)) {
+    document.getElementById('ready-countdown').classList.add('hidden');
   }
 
   if (teamMode && players.length < 4) {
@@ -386,13 +433,8 @@ function renderLobby(players, hostId, standings, raceNum, puEnabled, teams, tmMo
     document.getElementById('standings-section').classList.add('hidden');
   }
 
-  if (isHost) {
-    document.getElementById('lobby-host-controls').classList.remove('hidden');
-    document.getElementById('lobby-waiting-msg').classList.add('hidden');
-  } else {
-    document.getElementById('lobby-host-controls').classList.add('hidden');
-    document.getElementById('lobby-waiting-msg').classList.remove('hidden');
-  }
+  document.getElementById('lobby-host-controls').classList.toggle('hidden', !isHost);
+  document.getElementById('lobby-claim-host').classList.toggle('hidden', !!hostId);
 }
 
 function renderStandingsTable(tableId, standings) {
@@ -417,7 +459,11 @@ document.getElementById('btn-end-session').addEventListener('click', () => {
   socket.emit('end_session');
 });
 document.getElementById('btn-restart').addEventListener('click', () => {
-  location.reload();
+  if (uniqueSession) {
+    socket.emit('reset_session');
+  } else {
+    location.reload();
+  }
 });
 
 function renderResults(data) {
@@ -634,6 +680,8 @@ socket.on('race_start', (data) => {
   commentatorMessages  = [];
   const notifPanel = document.getElementById('notif-panel');
   if (notifPanel) notifPanel.innerHTML = '';
+  myReady = false;
+  document.getElementById('ready-countdown').classList.add('hidden');
   commentPrevLeaderId  = null;
   commentPrevComboMap  = new Map();
   floatingReactions    = [];
@@ -776,6 +824,16 @@ socket.on('powerup_taken', (data) => {
   }
 });
 
+socket.on('ready_tick', (data) => {
+  document.getElementById('ready-seconds').textContent = data.secondsLeft;
+  document.getElementById('ready-countdown').classList.remove('hidden');
+});
+
+socket.on('ready_cancelled', () => {
+  document.getElementById('ready-countdown').classList.add('hidden');
+  document.getElementById('ready-seconds').textContent = '10';
+});
+
 socket.on('bomb_hit', () => {
   addNotif('💣 Ralenti par une bombe ! (4s)');
 });
@@ -817,6 +875,22 @@ socket.on('session_end', (data) => {
     `;
     tbody.appendChild(tr);
   });
+  const btnRestart = document.getElementById('btn-restart');
+  const sessionWait = document.getElementById('session-waiting-msg');
+  if (uniqueSession) {
+    btnRestart.textContent = '🔄 Nouvelle session';
+    if (isHost) {
+      btnRestart.classList.remove('hidden');
+      if (sessionWait) sessionWait.classList.add('hidden');
+    } else {
+      btnRestart.classList.add('hidden');
+      if (sessionWait) sessionWait.classList.remove('hidden');
+    }
+  } else {
+    btnRestart.textContent = 'Nouvelle partie';
+    btnRestart.classList.remove('hidden');
+    if (sessionWait) sessionWait.classList.add('hidden');
+  }
   showScreen('screen-session-end');
 });
 

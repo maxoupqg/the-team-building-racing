@@ -18,10 +18,10 @@
   const OBS_PHASE1B = 0.15;
   const OBS_PHASE2  = 0.30;
   const OBS_PHASE3  = 0.72;
-  const OBS_W1A = [0.50, 0.50, 0,    0,    0   ];  // intro : log/barrier uniquement
+  const OBS_W1A = [0.40, 0.40, 0,    0,    0.20];  // intro : log/barrier uniquement
   const OBS_W1B = [0.30, 0.30, 0.10, 0.10, 0.20];  // découverte : tous en facile
-  const OBS_W2  = [0.22, 0.22, 0.18, 0.18, 0.20];  // équilibré
-  const OBS_W3  = [0.12, 0.12, 0.25, 0.25, 0.26];  // murs/caisses dominant
+  const OBS_W2  = [0.25, 0.25, 0.15, 0.15, 0.20];  // équilibré
+  const OBS_W3  = [0.20, 0.20, 0.20, 0.20, 0.20];  // murs/caisses dominant
 
   function weightedPick(rng, weights) {
     const r = rng();
