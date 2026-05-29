@@ -299,6 +299,16 @@ document.getElementById('btn-toggle-teams').addEventListener('click', () => {
   socket.emit('toggle_teams');
 });
 
+document.getElementById('btn-rules').addEventListener('click', () => {
+  document.getElementById('rules-overlay').classList.remove('hidden');
+});
+document.getElementById('btn-rules-close').addEventListener('click', () => {
+  document.getElementById('rules-overlay').classList.add('hidden');
+});
+document.getElementById('rules-overlay').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) document.getElementById('rules-overlay').classList.add('hidden');
+});
+
 function renderLobby(players, hostId, standings, raceNum, puEnabled, teams, tmMode) {
   isHost = hostId === myPlayerId;
   raceNumber = raceNum || 0;
@@ -509,6 +519,7 @@ const KEY_MAP = {
   Space:      'jump',
   ArrowDown:  'slide',
   KeyZ:       'attack',
+  KeyW:       'attack',
 };
 
 const REACTION_EMOJIS = { Digit1: '😱', Digit2: '💀', Digit3: '🔥' };
@@ -621,6 +632,8 @@ socket.on('race_start', (data) => {
   clockSamples = 0;
   finishNotifications  = [];
   commentatorMessages  = [];
+  const notifPanel = document.getElementById('notif-panel');
+  if (notifPanel) notifPanel.innerHTML = '';
   commentPrevLeaderId  = null;
   commentPrevComboMap  = new Map();
   floatingReactions    = [];
@@ -710,9 +723,23 @@ function checkCommentatorEvents(players) {
   }
 }
 
-function addCommentary(text, color) {
-  commentatorMessages.push({ text, color: color || '#fff', expiry: Date.now() + 4000 });
-  if (commentatorMessages.length > 3) commentatorMessages.shift();
+function addCommentary(text) {
+  addNotif(text);
+}
+
+function addNotif(text, durationMs = 3500) {
+  const panel = document.getElementById('notif-panel');
+  if (!panel) return;
+  const el = document.createElement('div');
+  el.className = 'notif-item';
+  el.textContent = text;
+  panel.appendChild(el);
+  // Cap at 6 items
+  while (panel.children.length > 6) panel.removeChild(panel.firstChild);
+  setTimeout(() => {
+    el.classList.add('fade-out');
+    setTimeout(() => el.remove(), 400);
+  }, durationMs);
 }
 
 socket.on('player_finished', (data) => {
@@ -722,10 +749,7 @@ socket.on('player_finished', (data) => {
   else soundFinishOther();
   const name = p ? p.name : data.playerId;
   const emoji = data.position === 1 ? '🥇' : data.position === 2 ? '🥈' : data.position === 3 ? '🥉' : `#${data.position}`;
-  finishNotifications.push({
-    text:   `${emoji} ${name} a terminé !`,
-    expiry: Date.now() + 3000,
-  });
+  addNotif(`${emoji} ${name} a terminé !`);
 });
 
 socket.on('race_results', (data) => {
@@ -744,15 +768,16 @@ socket.on('powerup_locked', (data) => {
 });
 
 socket.on('powerup_taken', (data) => {
-  visiblePowerUps.delete(data.puId);
+  if (data.playerId === myPlayerId) visiblePowerUps.delete(data.puId);
   if (data.playerId === myPlayerId) {
     soundPowerUp();
-    const labels = { boost: '🚀 Boost !', shield: '🛡️ Bouclier !', bomb: '💣 Bombe lancée !' };
-    finishNotifications.push({
-      text:   labels[data.type] || '⭐ Power-up !',
-      expiry: Date.now() + 2500,
-    });
+    const labels = { boost: '🚀 Boost !', shield: '🛡️ Bouclier !', bomb: '💣 Les 3 devant sont ralentis !' };
+    addNotif(labels[data.type] || '⭐ Power-up !', 2500);
   }
+});
+
+socket.on('bomb_hit', () => {
+  addNotif('💣 Ralenti par une bombe ! (4s)');
 });
 
 socket.on('reaction', (data) => {
@@ -869,10 +894,9 @@ function renderFrame() {
   }
 
   drawHUD(myInterp, rb);
-  drawCommentator();
+
   drawProgressBar(interp);
   drawFloatingReactions(interp, myInterp);
-  drawFinishNotifications();
 }
 
 function getBufferedStates() {
@@ -1273,7 +1297,7 @@ function drawHUD(myInterp, rb = 0) {
   ctx.textAlign = 'left';
   ctx.fillText('[←→] Esquiver', 8, CANVAS_H - 59);
   ctx.fillText('[Espace] Sauter', 8, CANVAS_H - 44);
-  ctx.fillText('[↓] Glisser   [Z] Détruire', 8, CANVAS_H - 29);
+  ctx.fillText('[↓] Glisser   [Z/W] Détruire', 8, CANVAS_H - 29);
   ctx.fillText('[1] 😱  [2] 💀  [3] 🔥', 8, CANVAS_H - 14);
 
   ctx.restore();
@@ -1423,7 +1447,7 @@ const OBSTACLE_HINTS = {
   barrier:    { label: '↓ GLISSER',  color: '#81c784' },
   wall_left:  { label: '→ DROITE',   color: '#ff8a65' },
   wall_right: { label: '← GAUCHE',   color: '#ff8a65' },
-  crate:      { label: 'Z DÉTRUIRE', color: '#ffd54f' },
+  crate:      { label: 'Z/W DÉTRUIRE', color: '#ffd54f' },
 };
 
 function drawObstacleHint(obs, cy) {

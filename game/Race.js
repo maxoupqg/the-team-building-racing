@@ -20,7 +20,7 @@ const OBSTACLE_WINDOW_END   = 150;   // px of grace after obstacle center
 const RACE_TIMEOUT_MS       = 5 * 60 * 1000; // 5 minutes
 
 const POWERUP_RADIUS = 40;    // pickup collision half-height
-const BOOST_MULT     = 1.6;   // +60% speed
+const BOOST_MULT     = 1.3;   // +30% speed
 const BOOST_DUR      = 6000;  // ms
 const SLOW_MULT      = 0.65;  // -35% speed
 const SLOW_DUR       = 4000;  // ms
@@ -270,7 +270,7 @@ class Race {
     for (const pu of this.powerUps) {
       if (player.processedPowerUps.has(pu.id)) continue;
       if ((pu.id % 10) >= puThreshold) continue;
-      if (Math.abs(player.y - pu.y) < POWERUP_RADIUS) {
+      if (Math.abs(player.y - pu.y) < POWERUP_RADIUS && Math.abs(player.x - pu.x) < POWERUP_RADIUS) {
         player.processedPowerUps.add(pu.id);
         const type = this._powerUpTypeForPlayer(relPos);
         this._applyPowerUp(player, type);
@@ -312,7 +312,7 @@ class Race {
           if (player.shielded) {
             player.shielded = false;
           } else {
-            player.combo = 0;
+            player.combo = player.combo > 15 ? Math.floor(player.combo / 2) : 0;
           }
         }
         player.pendingObstacles.delete(obs.id);
@@ -352,9 +352,10 @@ class Race {
         const targets = [...this.players.values()]
           .filter(p => p.id !== player.id && !p.finished && p.progress > player.progress)
           .sort((a, b) => a.progress - b.progress)
-          .slice(0, 5);
+          .slice(0, 3);
         for (const t of targets) {
           t.slowTimer = Math.max(t.slowTimer, SLOW_DUR);
+          this.io.to(t.id).emit('bomb_hit', { fromId: player.id });
         }
         break;
       }

@@ -74,6 +74,7 @@
         <span class="room-code-label">Power-ups</span>
         <button id="btn-toggle-powerups" class="btn btn-small btn-outline">⚡ Désactivés</button>
         <button id="btn-toggle-teams" class="btn btn-small btn-outline">👥 Équipes off</button>
+        <button id="btn-rules" class="btn btn-small btn-outline">📖 Règles</button>
       </div>
 
       <div id="lobby-host-controls" class="lobby-controls hidden">
@@ -90,6 +91,7 @@
   <!-- ── Race screen ─────────────────────────────────────────────────────── -->
   <div id="screen-race" class="screen hidden">
     <div class="race-wrapper">
+      <div id="notif-panel" class="notif-panel"></div>
       <canvas id="gameCanvas" width="480" height="640"></canvas>
     </div>
   </div>
@@ -166,6 +168,57 @@
   <!-- ── Countdown overlay ───────────────────────────────────────────────── -->
   <div id="countdown-overlay" class="countdown-overlay hidden">
     <div id="countdown-text" class="countdown-text">3</div>
+  </div>
+
+  <!-- ── Rules modal ───────────────────────────────────────────────────────── -->
+  <div id="rules-overlay" class="rules-overlay hidden" role="dialog" aria-modal="true">
+    <div class="rules-card">
+      <button id="btn-rules-close" class="rules-close">✕</button>
+      <h2>📖 Règles du jeu</h2>
+
+      <section>
+        <h3>🚧 Obstacles</h3>
+        <table class="rules-table">
+          <tbody>
+            <tr>
+              <td><img src="/assets/sprites/rondin.png" class="rules-sprite" alt="Rondin"></td>
+              <td>Sauter</td><td class="key">Espace</td>
+            </tr>
+            <tr>
+              <td><img src="/assets/sprites/bareer_up.png" class="rules-sprite" alt="Barrière"></td>
+              <td>Glisser dessous</td><td class="key">↓</td>
+            </tr>
+            <tr><td>🧱 Mur gauche</td><td>Esquiver à droite</td><td class="key">→</td></tr>
+            <tr><td>🧱 Mur droit</td><td>Esquiver à gauche</td><td class="key">←</td></tr>
+            <tr><td>📦 Caisse</td><td>Détruire</td><td class="key">Z / W</td></tr>
+          </tbody>
+        </table>
+        <p class="rules-note">Réussir un obstacle augmente ton combo de vitesse. Le rater le remet à zéro (ou divise par 2 si combo &gt; 15).</p>
+      </section>
+
+      <section>
+        <h3>⚡ Power-ups</h3>
+        <table class="rules-table">
+          <tbody>
+            <tr><td>🚀 Boost</td><td>+30% de vitesse pendant 6s</td></tr>
+            <tr><td>🛡️ Bouclier</td><td>Absorbe 1 obstacle raté</td></tr>
+            <tr><td>💣 Bombe</td><td>Ralentit les 3 joueurs devant toi pendant 4s</td></tr>
+          </tbody>
+        </table>
+        <p class="rules-note">Les joueurs en queue de peloton voient plus de power-ups. Le leader en voit très peu.</p>
+      </section>
+
+      <section>
+        <h3>🏎️ Rubber band</h3>
+        <p>Si tu es loin derrière le leader, tu reçois un léger bonus de vitesse automatique (max +30%) pour rester dans la course.</p>
+      </section>
+
+      <section>
+        <h3>🏆 Système de points</h3>
+        <p>Les points par position augmentent fortement vers le 1er (échelle triangulaire). Le dernier reçoit 0 point.</p>
+        <p class="rules-note">Bonus combo : jusqu'à +6 pts si max combo ≥ 30. Bonus streak : +3 pts par victoire consécutive supplémentaire (max 2 fois).</p>
+      </section>
+    </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
