@@ -1,3 +1,4 @@
+
 (function (root, factory) {
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = factory(require('./seededRandom'));
