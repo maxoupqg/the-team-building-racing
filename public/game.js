@@ -633,7 +633,7 @@ socket.on('room_joined', (data) => {
 socket.on('lobby_update', (data) => {
   isHost = data.hostId === myPlayerId;
   renderLobby(data.players, data.hostId, data.standings, data.raceNumber, data.powerUpsEnabled, data.teams, data.teamMode);
-  if (gameState === 'results') {
+  if (gameState === 'results' || gameState === 'session_end') {
     gameState = 'lobby';
     showScreen('screen-lobby');
   }
@@ -862,7 +862,7 @@ socket.on('player_left', (data) => {
 });
 
 socket.on('session_end', (data) => {
-  gameState = 'welcome';
+  gameState = 'session_end';
   if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
   const tbody = document.querySelector('#session-end-table tbody');
   tbody.innerHTML = '';
