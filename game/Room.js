@@ -42,6 +42,11 @@ class Room {
     // Team mode
     this.teamMode = false;
     this.teams    = [];   // [{ id, name, color, playerIds }]
+
+    // Ready system
+    this.readyPlayers      = new Set();
+    this.readyCountdownId  = null;
+    this.readyCountdownVal = 0;
   }
 
   // ── Player management ──────────────────────────────────────────────────────
@@ -66,19 +71,20 @@ class Room {
   removePlayer(socketId) {
     this.players.delete(socketId);
     this.standings.delete(socketId);
+    this.readyPlayers.delete(socketId);
 
     if (this.hostId === socketId) {
-      // Promote the next player as host
       const next = this.players.values().next().value;
       if (next) {
-        next.isHost  = true;
-        this.hostId  = next.id;
+        next.isHost = true;
+        this.hostId = next.id;
       } else {
         this.hostId = null;
       }
     }
 
     if (this.teamMode) this._rebuildTeams();
+    this._checkAllReady();
 
     const newHostId = this.hostId;
     this.io.to(this.code).emit('player_left', { playerId: socketId, newHostId });
@@ -156,6 +162,12 @@ class Room {
   }
 
   _emitLobbyUpdate() {
+    // Safety net — always ensure a host exists
+    if (!this.hostId && this.players.size > 0) {
+      const first = this.players.values().next().value;
+      first.isHost = true;
+      this.hostId  = first.id;
+    }
     this.io.to(this.code).emit('lobby_update', {
       players:         this._playerList(),
       hostId:          this.hostId,
@@ -173,6 +185,7 @@ class Room {
       name:   p.name,
       color:  p.color,
       isHost: p.isHost,
+      ready:  this.readyPlayers.has(p.id),
     }));
   }
 
@@ -180,6 +193,56 @@ class Room {
     return [...this.standings.values()]
       .sort((a, b) => b.totalPoints - a.totalPoints)
       .map((s, i) => ({ ...s, position: i + 1 }));
+  }
+
+  // ── Ready system ──────────────────────────────────────────────────────────
+
+  toggleReady(socketId) {
+    if (this.state !== 'lobby') return;
+    if (this.readyPlayers.has(socketId)) {
+      this.readyPlayers.delete(socketId);
+    } else {
+      this.readyPlayers.add(socketId);
+    }
+    this._emitLobbyUpdate();
+    this._checkAllReady();
+  }
+
+  _checkAllReady() {
+    const total = this.players.size;
+    const ready = [...this.players.keys()].filter(id => this.readyPlayers.has(id)).length;
+    const allReady = total >= 1 && ready === total;
+
+    if (allReady && !this.readyCountdownId) {
+      this._startReadyCountdown();
+    } else if (!allReady && this.readyCountdownId) {
+      this._cancelReadyCountdown();
+    }
+  }
+
+  _startReadyCountdown() {
+    this.readyCountdownVal = 10;
+    this.io.to(this.code).emit('ready_tick', { secondsLeft: this.readyCountdownVal });
+    const tick = () => {
+      this.readyCountdownVal--;
+      if (this.readyCountdownVal <= 0) {
+        this.readyCountdownId = null;
+        this.readyPlayers.clear();
+        this.startRace();
+      } else {
+        this.io.to(this.code).emit('ready_tick', { secondsLeft: this.readyCountdownVal });
+        this.readyCountdownId = setTimeout(tick, 1000);
+      }
+    };
+    this.readyCountdownId = setTimeout(tick, 1000);
+  }
+
+  _cancelReadyCountdown() {
+    if (this.readyCountdownId) {
+      clearTimeout(this.readyCountdownId);
+      this.readyCountdownId = null;
+    }
+    this.io.to(this.code).emit('ready_cancelled');
   }
 
   // ── Race lifecycle ─────────────────────────────────────────────────────────
@@ -301,6 +364,21 @@ class Room {
     if (this.state !== 'results') return;
     this.currentRace = null;
     this.state = 'lobby';
+    this.readyPlayers.clear();
+    this._emitLobbyUpdate();
+  }
+
+  reset() {
+    if (this.currentRace) { this.currentRace.stop(); this.currentRace = null; }
+    this._cancelReadyCountdown();
+    this.state      = 'lobby';
+    this.raceNumber = 0;
+    this.lastResults = null;
+    this.readyPlayers.clear();
+    this.standings.clear();
+    for (const p of this.players.values()) {
+      this.standings.set(p.id, { id: p.id, name: p.name, color: p.color, totalPoints: 0, streak: 0 });
+    }
     this._emitLobbyUpdate();
   }
 
