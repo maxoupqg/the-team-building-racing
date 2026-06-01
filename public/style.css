@@ -315,6 +315,11 @@ input[type="text"]:focus { border-color: var(--accent); }
   word-break:    break-word;
   animation:     notifIn .2s ease-out;
 }
+.notif-item.notif-team-boost {
+  border-left-color: #4fc3f7;
+  background:        rgba(79,195,247,0.15);
+  font-size:         .88rem;
+}
 .notif-item.fade-out {
   animation: notifOut .4s ease-in forwards;
 }

@@ -495,7 +495,7 @@ function renderResults(data) {
     if (r.position <= 3) tr.classList.add(`pos-${r.position}`);
     tr.innerHTML = `
       <td>${r.position}</td>
-      <td><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${r.color};margin-right:6px;vertical-align:middle"></span>${escapeHtml(r.name)}</td>
+      <td><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${r.color};margin-right:6px;vertical-align:middle"></span>${escapeHtml(r.name)}${r.teamBoostPct > 0 ? ` <span style="font-size:.72rem;color:#4fc3f7;font-weight:700">+${r.teamBoostPct}%⚡</span>` : ''}</td>
       <td>${formatTime(r.finishTime)}</td>
       <td>${r.maxCombo > 0 ? `x${r.maxCombo}` : '-'}</td>
       <td>${formatPowerUpCounts(r.powerUpCounts)}</td>
@@ -800,6 +800,23 @@ socket.on('player_finished', (data) => {
   addNotif(`${emoji} ${name} a terminé !`);
 });
 
+socket.on('team_boost', (data) => {
+  const myBoost = data.boostedPlayers.find(b => b.id === myPlayerId);
+  if (myBoost) {
+    const notif = document.createElement('div');
+    notif.className = 'notif-item notif-team-boost';
+    notif.innerHTML = `⚡ <strong>+${data.boostPct}%</strong> de <span style="color:${data.fromColor}">${escapeHtml(data.fromName)}</span> ! (total +${myBoost.totalBoostPct}%)`;
+    const panel = document.getElementById('notif-panel');
+    if (panel) {
+      panel.appendChild(notif);
+      while (panel.children.length > 6) panel.removeChild(panel.firstChild);
+      setTimeout(() => { notif.classList.add('fade-out'); setTimeout(() => notif.remove(), 400); }, 4000);
+    }
+  } else {
+    addNotif(`⚡ ${escapeHtml(data.fromName)} booste son équipe (+${data.boostPct}%)`, 2500);
+  }
+});
+
 socket.on('race_results', (data) => {
   gameState = 'results';
   if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
@@ -1027,14 +1044,14 @@ function drawTrack(myInterp) {
 
   // Scrolling road tile
   if (roadTile.complete && roadTile.naturalHeight > 0) {
-    const tileH  = roadTile.naturalHeight;
-    const offset = playerY % tileH;
+    const tileH  = Math.round(roadTile.naturalHeight * (TRACK_RENDER_W / roadTile.naturalWidth));
+    const offset = Math.round(playerY % tileH);
     ctx.save();
     ctx.beginPath();
     ctx.rect(TRACK_LEFT, 0, TRACK_RENDER_W, CANVAS_H);
     ctx.clip();
     for (let y = -tileH + offset; y < CANVAS_H + tileH; y += tileH) {
-      ctx.drawImage(roadTile, TRACK_LEFT, y, TRACK_RENDER_W, tileH);
+      ctx.drawImage(roadTile, TRACK_LEFT, Math.round(y), TRACK_RENDER_W, tileH);
     }
     ctx.restore();
   } else {

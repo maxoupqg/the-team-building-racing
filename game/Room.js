@@ -284,7 +284,7 @@ class Room {
       this.io,
       this.code,
       (finishOrder, playerStates) => this._onRaceFinished(finishOrder, playerStates),
-      { powerUpsEnabled: this.powerUpsEnabled },
+      { powerUpsEnabled: this.powerUpsEnabled, teamMode: this.teamMode, teams: this.teams },
     );
 
     this.currentRace.start();
@@ -333,7 +333,8 @@ class Room {
         points:        pts,
         comboBonus,
         streakBonus,
-        totalPoints: standing.totalPoints,
+        totalPoints:   standing.totalPoints,
+        teamBoostPct:  Math.round((pState.teamBoostMult - 1) * 100),
       });
     }
 
