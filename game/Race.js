@@ -421,6 +421,7 @@ class Race {
       case 'wall_left':  return 'dodge_right';
       case 'wall_right': return 'dodge_left';
       case 'crate':      return 'attack';
+      case 'split':      return 'split';
       default:           return 'none';
     }
   }
@@ -441,6 +442,8 @@ class Race {
         if (!inCollision && player.y >= obs.y - 80) return true;
         return false;
       }
+      case 'split':
+        return player.x < 0 ? player.state === 'jumping' : player.state === 'sliding';
       default:           return false;
     }
   }

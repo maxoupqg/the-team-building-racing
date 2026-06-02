@@ -39,6 +39,7 @@ class Room {
     this.lastResults = null;
     this.powerUpsEnabled = false;
     this.level = 1;
+    this.autoLevel = true;  // auto-increment every 2 races until level 3
 
     // Team mode
     this.teamMode = false;
@@ -113,7 +114,8 @@ class Room {
   }
 
   toggleLevel() {
-    this.level = this.level === 1 ? 2 : 1;
+    this.level = this.level >= 3 ? 1 : this.level + 1;
+    this.autoLevel = false;
     this._emitLobbyUpdate();
   }
 
@@ -381,6 +383,10 @@ class Room {
     this.currentRace = null;
     this.state = 'lobby';
     this.readyPlayers.clear();
+    // Auto-increment level every 2 races (stops at 3, disabled if host set level manually)
+    if (this.autoLevel && this.raceNumber % 2 === 0 && this.level < 3) {
+      this.level++;
+    }
     this._emitLobbyUpdate();
   }
 
@@ -389,6 +395,8 @@ class Room {
     this._cancelReadyCountdown();
     this.state      = 'lobby';
     this.raceNumber = 0;
+    this.level      = 1;
+    this.autoLevel  = true;
     this.lastResults = null;
     this.readyPlayers.clear();
     this.standings.clear();
