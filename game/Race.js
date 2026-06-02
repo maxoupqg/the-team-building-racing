@@ -50,9 +50,10 @@ class Race {
     this.players = new Map();
     for (const p of playerList) {
       this.players.set(p.id, {
-        id:    p.id,
-        name:  p.name,
-        color: p.color,
+        id:       p.id,
+        name:     p.name,
+        color:    p.color,
+        avatarId: p.avatarId || 0,
         x:     0,
         y:     0,
         state: 'running',
@@ -101,10 +102,11 @@ class Race {
       powerUps:    [],
       trackLength: TRACK_LENGTH,
       players:     [...this.players.values()].map(p => ({
-        i:     this.playerIndex.get(p.id),
-        id:    p.id,
-        name:  p.name,
-        color: p.color,
+        i:        this.playerIndex.get(p.id),
+        id:       p.id,
+        name:     p.name,
+        color:    p.color,
+        avatarId: p.avatarId || 0,
       })),
       constants: {
         TRACK_LENGTH,

@@ -240,28 +240,30 @@ function showError(elId, msg) {
 }
 
 // ── Color picker ─────────────────────────────────────────────────────────────
-const COLORS = [
-  '#e94560', '#4c9be8', '#4caf50', '#ffd700', '#9c27b0',
-  '#ff9800', '#f06292', '#00bcd4', '#eceff1', '#8bc34a',
-];
+let selectedAvatarId = 0;
 
-(function initColorPicker() {
-  const picker = document.getElementById('color-picker');
-  COLORS.forEach(color => {
-    const circle = document.createElement('div');
-    circle.className = 'color-circle';
-    circle.style.background = color;
-    if (color === myColor) circle.classList.add('active');
-    circle.addEventListener('click', () => {
-      document.querySelectorAll('.color-circle').forEach(c => c.classList.remove('active'));
-      circle.classList.add('active');
-      myColor = color;
+(function initAvatarPicker() {
+  const picker = document.getElementById('avatar-picker');
+  for (let i = 0; i < AVATAR_COUNT; i++) {
+    const c = document.createElement('canvas');
+    c.width = 48; c.height = 48;
+    c.className = 'avatar-option';
+    c.title = AVATAR_DEFS[i].name;
+    const octx = c.getContext('2d');
+    octx.imageSmoothingEnabled = false;
+    drawAvatar(octx, i, 0, 0, 48);
+    c.addEventListener('click', () => {
+      document.querySelectorAll('.avatar-option').forEach(el => el.classList.remove('selected'));
+      c.classList.add('selected');
+      selectedAvatarId = i;
+      myColor = AVATAR_DEFS[i].color;
     });
-    picker.appendChild(circle);
-  });
-  // Select first by default
-  picker.querySelector('.color-circle').classList.add('active');
-  myColor = COLORS[0];
+    picker.appendChild(c);
+  }
+  // Sélection par défaut
+  picker.querySelector('.avatar-option').classList.add('selected');
+  selectedAvatarId = 0;
+  myColor = AVATAR_DEFS[0].color;
 })();
 
 // ── Welcome screen ─────────────────────────────────────────────────────────────
@@ -272,7 +274,7 @@ document.getElementById('input-code').addEventListener('input', e => {
 document.getElementById('btn-create').addEventListener('click', () => {
   myName = document.getElementById('input-name').value.trim();
   if (!myName) { showError('welcome-error', 'Entrez un pseudo.'); return; }
-  socket.emit('create_room', { playerName: myName, playerColor: myColor });
+  socket.emit('create_room', { playerName: myName, playerColor: myColor, avatarId: selectedAvatarId });
 });
 
 document.getElementById('btn-join').addEventListener('click', () => {
@@ -280,13 +282,13 @@ document.getElementById('btn-join').addEventListener('click', () => {
   const code = document.getElementById('input-code').value.trim().toUpperCase();
   if (!myName) { showError('welcome-error', 'Entrez un pseudo.'); return; }
   if (code.length !== 4) { showError('welcome-error', 'Code de salle invalide (4 lettres).'); return; }
-  socket.emit('join_room', { roomCode: code, playerName: myName, playerColor: myColor });
+  socket.emit('join_room', { roomCode: code, playerName: myName, playerColor: myColor, avatarId: selectedAvatarId });
 });
 
 document.getElementById('btn-join-unique').addEventListener('click', () => {
   myName = document.getElementById('input-name').value.trim();
   if (!myName) { showError('welcome-error', 'Entrez un pseudo.'); return; }
-  socket.emit('join_room', { playerName: myName, playerColor: myColor });
+  socket.emit('join_room', { playerName: myName, playerColor: myColor, avatarId: selectedAvatarId });
 });
 
 document.getElementById('input-name').addEventListener('keydown', e => {
@@ -339,6 +341,20 @@ document.getElementById('rules-overlay').addEventListener('click', (e) => {
   if (e.target === e.currentTarget) document.getElementById('rules-overlay').classList.add('hidden');
 });
 
+function avatarImg(avatarId, size) {
+  const url = getAvatarCanvas(avatarId || 0, size).toDataURL();
+  return `<img src="${url}" width="${size}" height="${size}" style="image-rendering:pixelated;vertical-align:middle;margin-right:5px;border-radius:3px">`;
+}
+
+function makeAvatarIcon(avatarId, size) {
+  const src = getAvatarCanvas(avatarId || 0, size);
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  c.className = 'player-avatar-icon';
+  c.getContext('2d').drawImage(src, 0, 0);
+  return c;
+}
+
 function renderLobby(players, hostId, standings, raceNum, puEnabled, teams, tmMode) {
   isHost = hostId === myPlayerId;
   raceNumber = raceNum || 0;
@@ -368,12 +384,21 @@ function renderLobby(players, hostId, standings, raceNum, puEnabled, teams, tmMo
       teamPlayers.forEach(p => {
         const card = document.createElement('div');
         card.className = 'player-card';
-        card.innerHTML = `
-          <div class="player-dot" style="background:${p.color}"></div>
-          <span>${escapeHtml(p.name)}</span>
-          ${p.id === hostId ? '<span class="player-crown">👑</span>' : ''}
-          <span class="team-label" style="background:${team.color}22;color:${team.color};border:1px solid ${team.color}55">${escapeHtml(team.name)}</span>
-        `;
+        card.appendChild(makeAvatarIcon(p.avatarId, 32));
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = p.name;
+        card.appendChild(nameSpan);
+        if (p.id === hostId) {
+          const crown = document.createElement('span');
+          crown.className = 'player-crown';
+          crown.textContent = '👑';
+          card.appendChild(crown);
+        }
+        const teamLabel = document.createElement('span');
+        teamLabel.className = 'team-label';
+        teamLabel.style.cssText = `background:${team.color}22;color:${team.color};border:1px solid ${team.color}55`;
+        teamLabel.textContent = team.name;
+        card.appendChild(teamLabel);
         list.appendChild(card);
       });
     });
@@ -382,23 +407,36 @@ function renderLobby(players, hostId, standings, raceNum, puEnabled, teams, tmMo
     players.filter(p => !assignedIds.has(p.id)).forEach(p => {
       const card = document.createElement('div');
       card.className = 'player-card';
-      card.innerHTML = `
-        <div class="player-dot" style="background:${p.color}"></div>
-        <span>${escapeHtml(p.name)}</span>
-        ${p.id === hostId ? '<span class="player-crown">👑</span>' : ''}
-      `;
+      card.appendChild(makeAvatarIcon(p.avatarId, 32));
+      const nameSpan = document.createElement('span');
+      nameSpan.textContent = p.name;
+      card.appendChild(nameSpan);
+      if (p.id === hostId) {
+        const crown = document.createElement('span');
+        crown.className = 'player-crown';
+        crown.textContent = '👑';
+        card.appendChild(crown);
+      }
       list.appendChild(card);
     });
   } else {
     players.forEach(p => {
       const card = document.createElement('div');
       card.className = 'player-card';
-      card.innerHTML = `
-        <div class="player-dot" style="background:${p.color}"></div>
-        <span>${escapeHtml(p.name)}</span>
-        ${p.id === hostId ? '<span class="player-crown">👑</span>' : ''}
-        <span class="player-ready-icon">${p.ready ? '✅' : '⏳'}</span>
-      `;
+      card.appendChild(makeAvatarIcon(p.avatarId, 32));
+      const nameSpan = document.createElement('span');
+      nameSpan.textContent = p.name;
+      card.appendChild(nameSpan);
+      if (p.id === hostId) {
+        const crown = document.createElement('span');
+        crown.className = 'player-crown';
+        crown.textContent = '👑';
+        card.appendChild(crown);
+      }
+      const readyIcon = document.createElement('span');
+      readyIcon.className = 'player-ready-icon';
+      readyIcon.textContent = p.ready ? '✅' : '⏳';
+      card.appendChild(readyIcon);
       list.appendChild(card);
     });
   }
@@ -444,7 +482,7 @@ function renderStandingsTable(tableId, standings) {
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${s.position}</td>
-      <td><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${s.color};margin-right:6px;vertical-align:middle"></span>${escapeHtml(s.name)}</td>
+      <td>${avatarImg(s.avatarId, 22)}${escapeHtml(s.name)}</td>
       <td><strong>${s.totalPoints}</strong></td>
     `;
     tbody.appendChild(tr);
@@ -481,6 +519,7 @@ function renderResults(data) {
     slot.className = `podium-slot pos-${pos}`;
     slot.innerHTML = `
       <div class="podium-trophy">${trophies[pos - 1] || ''}</div>
+      <div class="podium-avatar">${avatarImg(r.avatarId, 40)}</div>
       <div class="podium-name" style="color:${r.color}">${escapeHtml(r.name)}</div>
       <div class="podium-time">${formatTime(r.finishTime)}</div>
     `;
@@ -495,7 +534,7 @@ function renderResults(data) {
     if (r.position <= 3) tr.classList.add(`pos-${r.position}`);
     tr.innerHTML = `
       <td>${r.position}</td>
-      <td><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${r.color};margin-right:6px;vertical-align:middle"></span>${escapeHtml(r.name)}${r.teamBoostPct > 0 ? ` <span style="font-size:.72rem;color:#4fc3f7;font-weight:700">+${r.teamBoostPct}%⚡</span>` : ''}</td>
+      <td>${avatarImg(r.avatarId, 22)}${escapeHtml(r.name)}${r.teamBoostPct > 0 ? ` <span style="font-size:.72rem;color:#4fc3f7;font-weight:700">+${r.teamBoostPct}%⚡</span>` : ''}</td>
       <td>${formatTime(r.finishTime)}</td>
       <td>${r.maxCombo > 0 ? `x${r.maxCombo}` : '-'}</td>
       <td>${formatPowerUpCounts(r.powerUpCounts)}</td>
@@ -659,6 +698,7 @@ socket.on('race_start', (data) => {
       id:       p.id,
       name:     p.name,
       color:    p.color,
+      avatarId: p.avatarId || 0,
       x:        0,
       y:        0,
       state:    'running',
@@ -887,7 +927,7 @@ socket.on('session_end', (data) => {
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${s.position}</td>
-      <td><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${s.color};margin-right:6px;vertical-align:middle"></span>${escapeHtml(s.name)}</td>
+      <td>${avatarImg(s.avatarId, 22)}${escapeHtml(s.name)}</td>
       <td><strong>${s.totalPoints}</strong></td>
     `;
     tbody.appendChild(tr);
@@ -971,6 +1011,7 @@ function renderFrame() {
 
   drawGhostPlayers(interp, myInterp);
   drawMyPlayer(myInterp, rb);
+  drawObstacleHints(myInterp);
   drawObstaclesFront(myInterp);
   drawComboParticles();
   ctx.restore();
@@ -1146,6 +1187,13 @@ function drawObstacles(myInterp) {
     if (canvasY < -100 || canvasY > 700) continue;
     const canvasX = TRACK_CENTER_X + obs.x;
     drawObstacle(obs, canvasX, canvasY);
+  }
+}
+
+function drawObstacleHints(myInterp) {
+  for (const obs of obstacles) {
+    const canvasY = PLAYER_RENDER_Y - (obs.y - myInterp.y);
+    if (canvasY < -100 || canvasY > 700) continue;
     drawObstacleHint(obs, canvasY);
   }
 }
@@ -1243,29 +1291,36 @@ function drawGhostPlayers(interp, myInterp) {
     const canvasX = TRACK_CENTER_X + p.x;
 
     ctx.save();
-    ctx.globalAlpha = 0.55;
     // Shadow
     ctx.beginPath();
     ctx.ellipse(canvasX, canvasY + 16, 13, 5, 0, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
     ctx.fill();
-    // Body
-    ctx.beginPath();
-    ctx.arc(canvasX, canvasY, 16, 0, Math.PI * 2);
-    ctx.fillStyle = p.color;
-    ctx.fill();
+    // Avatar sprite (semi-transparent for opponents)
+    ctx.globalAlpha = 0.55;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(getAvatarCanvas(p.avatarId || 0, 32), canvasX - 16, canvasY - 16, 32, 32);
     ctx.globalAlpha = 1;
     // Name
     ctx.font = '11px Inter, system-ui, sans-serif';
     ctx.fillStyle = p.color;
     ctx.textAlign = 'center';
     ctx.fillText(p.name, canvasX, canvasY - 22);
-    // State icon
+    // State icon badge above ghost avatar
     const stateIcon = stateToIcon(p.state);
     if (stateIcon) {
-      ctx.font = '13px sans-serif';
+      ctx.globalAlpha = 0.8;
+      ctx.beginPath();
+      ctx.arc(canvasX, canvasY - 26, 10, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      ctx.fill();
+      ctx.font = 'bold 12px sans-serif';
       ctx.fillStyle = '#fff';
-      ctx.fillText(stateIcon, canvasX, canvasY + 5);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(stateIcon, canvasX, canvasY - 26);
+      ctx.textBaseline = 'alphabetic';
+      ctx.globalAlpha = 1;
     }
     ctx.restore();
   }
@@ -1305,25 +1360,29 @@ function drawMyPlayer(p, rb = 0) {
   ctx.fillStyle = 'rgba(0,0,0,0.35)';
   ctx.fill();
 
-  // Body
-  ctx.beginPath();
-  ctx.arc(cx, cy, 18, 0, Math.PI * 2);
-  ctx.fillStyle = p.color;
-  ctx.fill();
-  ctx.strokeStyle = '#fff';
-  ctx.lineWidth = 2.5;
-  ctx.stroke();
+  // Avatar sprite
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(getAvatarCanvas(p.avatarId || 0, 36), cx - 18, cy - 18, 36, 36);
 
-  // State icon inside
+  // State icon — floating badge above avatar, clearly outside the sprite
   const icon = stateToIcon(p.state);
   if (icon) {
-    ctx.font = '16px sans-serif';
+    const bx = cx;
+    const by = cy - 50;   // above avatar top (cy-18) with gap below name
+    ctx.beginPath();
+    ctx.arc(bx, by, 13, 0, Math.PI * 2);
+    ctx.fillStyle = '#555';
+    ctx.fill();
+    ctx.strokeStyle = '#ccc';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.font = 'bold 15px sans-serif';
+    ctx.fillStyle = '#fff';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#fff';
-    ctx.fillText(icon, cx, cy);
+    ctx.fillText(icon, bx, by);
+    ctx.textBaseline = 'alphabetic';
   }
-  ctx.textBaseline = 'alphabetic';
 
   // Active power-up badges (right of player)
   const badges = [];
@@ -1332,8 +1391,10 @@ function drawMyPlayer(p, rb = 0) {
   if (p.slowTimer  > 0)  badges.push('🐌');
   if (badges.length > 0) {
     ctx.font = '13px serif';
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    badges.forEach((b, i) => ctx.fillText(b, cx + 24 + i * 16, cy));
+    badges.forEach((b, i) => ctx.fillText(b, cx + 22 + i * 18, cy));
     ctx.textBaseline = 'alphabetic';
   }
 
