@@ -190,6 +190,13 @@ io.on('connection', (socket) => {
     room.togglePowerUps();
   });
 
+  // Host toggles difficulty level (lobby only)
+  socket.on('toggle_level', () => {
+    const room = findRoomByPlayerId(socket.id);
+    if (!room || !room.isHost(socket.id) || room.state !== 'lobby') return;
+    room.toggleLevel();
+  });
+
   // Host toggles team mode (lobby only)
   socket.on('toggle_teams', () => {
     const room = findRoomByPlayerId(socket.id);

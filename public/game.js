@@ -122,6 +122,7 @@ let powerUpsEnabled       = false;
 // Teams
 let teamMode              = false;
 let currentTeams          = [];  // [{ id, name, color, playerIds, members }]
+let currentLevel          = 1;
 
 // ── Sound engine (Web Audio API — no files) ───────────────────────────────────
 let _audioCtx = null;
@@ -323,6 +324,11 @@ document.getElementById('btn-toggle-teams').addEventListener('click', () => {
   socket.emit('toggle_teams');
 });
 
+document.getElementById('btn-toggle-level').addEventListener('click', () => {
+  if (!isHost) return;
+  socket.emit('toggle_level');
+});
+
 document.getElementById('btn-claim-host').addEventListener('click', () => {
   socket.emit('claim_host');
 });
@@ -355,12 +361,13 @@ function makeAvatarIcon(avatarId, size) {
   return c;
 }
 
-function renderLobby(players, hostId, standings, raceNum, puEnabled, teams, tmMode) {
+function renderLobby(players, hostId, standings, raceNum, puEnabled, teams, tmMode, lvl) {
   isHost = hostId === myPlayerId;
   raceNumber = raceNum || 0;
   powerUpsEnabled = !!puEnabled;
   teamMode = !!tmMode;
   currentTeams = teams || [];
+  currentLevel = lvl || 1;
 
   const btnPU = document.getElementById('btn-toggle-powerups');
   btnPU.textContent  = powerUpsEnabled ? '⚡ Activés' : '⚡ Désactivés';
@@ -371,6 +378,11 @@ function renderLobby(players, hostId, standings, raceNum, puEnabled, teams, tmMo
   btnTM.textContent = teamMode ? '👥 Équipes on' : '👥 Équipes off';
   btnTM.classList.toggle('active', teamMode);
   btnTM.disabled = !isHost;
+
+  const btnLV = document.getElementById('btn-toggle-level');
+  btnLV.textContent = currentLevel === 2 ? '🎯 Niveau 2' : '🎯 Niveau 1';
+  btnLV.classList.toggle('active', currentLevel === 2);
+  btnLV.disabled = !isHost;
 
   document.getElementById('player-count').textContent = `(${players.length})`;
 
@@ -653,7 +665,7 @@ socket.on('room_created', (data) => {
   myRoomCode  = data.code;
   isHost      = true;
   document.getElementById('room-code-text').textContent = data.code;
-  renderLobby(data.players, data.hostId, data.standings, data.raceNumber, data.powerUpsEnabled, data.teams, data.teamMode);
+  renderLobby(data.players, data.hostId, data.standings, data.raceNumber, data.powerUpsEnabled, data.teams, data.teamMode, data.level);
   generateQRCode(data.code);
   showScreen('screen-lobby');
   gameState = 'lobby';
@@ -663,7 +675,7 @@ socket.on('room_joined', (data) => {
   myPlayerId = data.playerId;
   myRoomCode = data.code;
   document.getElementById('room-code-text').textContent = data.code;
-  renderLobby(data.players, data.hostId, data.standings, data.raceNumber, data.powerUpsEnabled, data.teams, data.teamMode);
+  renderLobby(data.players, data.hostId, data.standings, data.raceNumber, data.powerUpsEnabled, data.teams, data.teamMode, data.level);
   generateQRCode(data.code);
   showScreen('screen-lobby');
   gameState = 'lobby';
@@ -671,7 +683,7 @@ socket.on('room_joined', (data) => {
 
 socket.on('lobby_update', (data) => {
   isHost = data.hostId === myPlayerId;
-  renderLobby(data.players, data.hostId, data.standings, data.raceNumber, data.powerUpsEnabled, data.teams, data.teamMode);
+  renderLobby(data.players, data.hostId, data.standings, data.raceNumber, data.powerUpsEnabled, data.teams, data.teamMode, data.level);
   if (gameState === 'results' || gameState === 'session_end') {
     gameState = 'lobby';
     showScreen('screen-lobby');
@@ -688,7 +700,7 @@ socket.on('race_start', (data) => {
   if (data.constants) Object.assign(C, data.constants);
 
   // Regenerate obstacles client-side using same seed
-  obstacles = generateObstacles(data.seed, data.trackLength || C.TRACK_LENGTH);
+  obstacles = generateObstacles(data.seed, data.trackLength || C.TRACK_LENGTH, data.level || 1);
 
   // Initialize player states and index map from server data
   playerStates   = new Map();
@@ -709,6 +721,8 @@ socket.on('race_start', (data) => {
     });
     if (p.i !== undefined) playerIndexMap.set(p.i, p.id);
   }
+
+  currentLevel = data.level || 1;
 
   // Reset input
   input = { left: false, right: false, jump: false, slide: false, attack: false };
@@ -1442,6 +1456,14 @@ function drawHUD(myInterp, rb = 0) {
   ctx.fillStyle = '#4caf50';
   ctx.textAlign = 'right';
   ctx.fillText(`🏁 ${(progress * 100).toFixed(1)}%`, CANVAS_W - SIDEBAR_X_END - 10, 22);
+
+  // Level 2 badge
+  if (currentLevel === 2) {
+    ctx.font = 'bold 11px Inter, system-ui, sans-serif';
+    ctx.fillStyle = '#ff7043';
+    ctx.textAlign = 'center';
+    ctx.fillText('⚠ NIVEAU 2', CANVAS_W / 2, 38);
+  }
 
   // Bottom-left: key hints
   ctx.font = '11px Inter, system-ui, sans-serif';

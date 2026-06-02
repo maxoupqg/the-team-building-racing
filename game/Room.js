@@ -38,6 +38,7 @@ class Room {
     this.currentRace = null;
     this.lastResults = null;
     this.powerUpsEnabled = false;
+    this.level = 1;
 
     // Team mode
     this.teamMode = false;
@@ -111,6 +112,11 @@ class Room {
     this._emitLobbyUpdate();
   }
 
+  toggleLevel() {
+    this.level = this.level === 1 ? 2 : 1;
+    this._emitLobbyUpdate();
+  }
+
   toggleTeamMode() {
     this.teamMode = !this.teamMode;
     if (this.teamMode) {
@@ -177,6 +183,7 @@ class Room {
       powerUpsEnabled: this.powerUpsEnabled,
       teamMode:        this.teamMode,
       teams:           this.teams,
+      level:           this.level,
     });
   }
 
@@ -291,7 +298,7 @@ class Room {
       this.io,
       this.code,
       (finishOrder, playerStates) => this._onRaceFinished(finishOrder, playerStates),
-      { powerUpsEnabled: this.powerUpsEnabled, teamMode: this.teamMode, teams: this.teams },
+      { powerUpsEnabled: this.powerUpsEnabled, teamMode: this.teamMode, teams: this.teams, level: this.level },
     );
 
     this.currentRace.start();
@@ -404,6 +411,7 @@ class Room {
       powerUpsEnabled: this.powerUpsEnabled,
       teamMode:        this.teamMode,
       teams:           this.teams,
+      level:           this.level,
     });
   }
 
@@ -418,6 +426,7 @@ class Room {
       powerUpsEnabled: this.powerUpsEnabled,
       teamMode:        this.teamMode,
       teams:           this.teams,
+      level:           this.level,
     });
     // Notify everyone else
     this._emitLobbyUpdate();
