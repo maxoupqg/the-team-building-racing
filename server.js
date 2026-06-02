@@ -204,6 +204,13 @@ io.on('connection', (socket) => {
     room.toggleTeamMode();
   });
 
+  // Overtake message (broadcast to all)
+  socket.on('overtake', ({ passedId, msg, isTeam }) => {
+    const room = findRoomByPlayerId(socket.id);
+    if (!room || room.state !== 'racing') return;
+    io.to(room.code).emit('overtake', { overtakerId: socket.id, passedId, msg, isTeam });
+  });
+
   // Emoji reaction during race
   socket.on('reaction', ({ emoji }) => {
     const room = findRoomByPlayerId(socket.id);

@@ -102,6 +102,7 @@ let finishNotifications = [];  // { text, expiry }
 // Screen shake
 let shakeTimer    = 0;
 let shakePrevCombo = 0;
+let comboHalved   = false;
 
 // Floating emoji reactions
 let floatingReactions = [];  // { emoji, name, color, playerId, spawnTime, duration }
@@ -114,6 +115,16 @@ let commentPrevComboMap  = new Map();
 // Combo particles
 let comboParticles        = [];  // { x, y, vx, vy, life, color, size }
 let particlePrevCombo     = 0;
+
+// Overtake detection
+let playersBehindMe      = new Set();
+let overtakeCooldowns    = new Map(); // playerId → last trigger timestamp
+const OVERTAKE_COOLDOWN_MS = 10000;
+const ROAST_MSGS = ['CHEH !', 'On se revoit à la ligne d\'arrivée 👋', 'Ça va l\'escargot ? 🐌', 'Bah alors on est en zone 30 ? 🚗'];
+const HYPE_MSGS  = ['Vas-y !', 'Tu peux le faire 💪', 'Pense à prendre les boosts ⚡', 'Un pour tous… 🤝'];
+
+// Floating overtake speech bubbles (visible to all)
+let floatingOvertakes = []; // { passedId, msg, isTeam, spawnTime }
 
 // Power-ups
 let visiblePowerUps       = new Map(); // id -> pu, unlocked by server per-player
@@ -207,6 +218,10 @@ function soundComboTick(combo) {
 function soundComboMiss() {
   _tone(90, 'square', 0.18, 0.22);
   _sweep(200, 80, 'sawtooth', 0.15, 0.1);
+}
+
+function soundComboHalf() {
+  _sweep(280, 130, 'sine', 0.12, 0.05);
 }
 
 function soundPowerUp() {
@@ -741,7 +756,11 @@ socket.on('race_start', (data) => {
   floatingReactions    = [];
   shakeTimer           = 0;
   shakePrevCombo       = 0;
+  comboHalved          = false;
   comboParticles       = [];
+  playersBehindMe      = new Set();
+  overtakeCooldowns    = new Map();
+  floatingOvertakes    = [];
   particlePrevCombo    = 0;
   visiblePowerUps      = new Map();
 
@@ -794,8 +813,9 @@ socket.on('game_state', (data) => {
 
   // Combo sounds
   const myNowCombo = playerStates.get(myPlayerId)?.combo ?? 0;
-  if (myNowCombo > myPrevCombo)                  soundComboTick(myNowCombo);
-  else if (myPrevCombo > 0 && myNowCombo === 0)  soundComboMiss();
+  if (myNowCombo > myPrevCombo)                                                         soundComboTick(myNowCombo);
+  else if (myPrevCombo > 0 && myNowCombo === 0)                                         soundComboMiss();
+  else if (myPrevCombo > 0 && myNowCombo > 0 && myNowCombo < myPrevCombo * 0.6)         soundComboHalf();
 
   checkCommentatorEvents([...playerStates.values()]);
 });
@@ -909,6 +929,11 @@ socket.on('bomb_hit', () => {
   addNotif('💣 Ralenti par une bombe ! (4s)');
 });
 
+socket.on('overtake', (data) => {
+  floatingOvertakes.push({ ...data, spawnTime: Date.now() });
+  if (floatingOvertakes.length > 10) floatingOvertakes.shift();
+});
+
 socket.on('reaction', (data) => {
   const p = playerStates.get(data.playerId);
   if (!p) return;
@@ -990,9 +1015,37 @@ function renderFrame() {
   const interp = getBufferedStates();
   const myInterp = interp.get(myPlayerId) || myPlayer;
 
-  // Detect miss (combo reset) → trigger screen shake
+  // Overtake detection (only after 2% progress to let players spread out at race start)
+  if (!myInterp.finished && (myInterp.progress || 0) > 0.02) {
+    const myProg   = myInterp.progress || 0;
+    const newBehind = new Set();
+    for (const [id, p] of interp) {
+      if (id === myPlayerId || p.finished) continue;
+      if ((p.progress || 0) < myProg) newBehind.add(id);
+    }
+    const now = Date.now();
+    for (const id of newBehind) {
+      if (!playersBehindMe.has(id) && (now - (overtakeCooldowns.get(id) || 0)) > OVERTAKE_COOLDOWN_MS) {
+        const passed = interp.get(id);
+        if (passed) {
+          const teammate = teamMode && currentTeams.some(t => t.playerIds.includes(myPlayerId) && t.playerIds.includes(id));
+          const msgs = teammate ? HYPE_MSGS : ROAST_MSGS;
+          const msg  = msgs[Math.floor(Math.random() * msgs.length)];
+          socket.emit('overtake', { passedId: id, msg, isTeam: teammate });
+          overtakeCooldowns.set(id, now);
+        }
+      }
+    }
+    playersBehindMe = newBehind;
+  }
+
+  // Detect miss (combo reset or halved) → trigger screen shake
   const curCombo = myInterp.combo || 0;
-  if (shakePrevCombo > 0 && curCombo === 0) shakeTimer = 350;
+  if (shakePrevCombo > 0 && curCombo === 0) {
+    shakeTimer = 350; comboHalved = false;
+  } else if (shakePrevCombo > 0 && curCombo > 0 && curCombo < shakePrevCombo * 0.6) {
+    shakeTimer = 140; comboHalved = true;
+  }
   shakePrevCombo = curCombo;
 
   // Detect combo increase → spawn particles
@@ -1030,11 +1083,16 @@ function renderFrame() {
   drawComboParticles();
   ctx.restore();
 
-  // Red flash overlay (outside shake so it's stable)
+  // Flash overlay (outside shake so it's stable)
   if (shakeTimer > 0) {
     ctx.save();
-    ctx.globalAlpha = (shakeTimer / 350) * 0.28;
-    ctx.fillStyle = '#ff1744';
+    if (comboHalved) {
+      ctx.globalAlpha = (shakeTimer / 140) * 0.16;
+      ctx.fillStyle = '#ff9800';
+    } else {
+      ctx.globalAlpha = (shakeTimer / 350) * 0.28;
+      ctx.fillStyle = '#ff1744';
+    }
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
     ctx.restore();
   }
@@ -1043,6 +1101,7 @@ function renderFrame() {
 
   drawProgressBar(interp);
   drawFloatingReactions(interp, myInterp);
+  drawOvertakeBubbles(interp, myInterp);
 }
 
 function getBufferedStates() {
@@ -1810,6 +1869,61 @@ function drawFloatingReactions(interp, myInterp) {
     ctx.fillStyle = r.color;
     ctx.fillText(r.name.slice(0, 8), canvasX, floatY + 16);
   }
+  ctx.restore();
+}
+
+function drawOvertakeBubbles(interp, myInterp) {
+  const DURATION = 2800;
+  const now = Date.now();
+  floatingOvertakes = floatingOvertakes.filter(o => (now - o.spawnTime) < DURATION);
+  if (floatingOvertakes.length === 0) return;
+
+  ctx.save();
+  ctx.font = 'bold 12px Inter, system-ui, sans-serif';
+  ctx.textAlign = 'center';
+
+  for (const o of floatingOvertakes) {
+    const age   = (now - o.spawnTime) / DURATION;
+    const alpha = age < 0.65 ? 1 : 1 - (age - 0.65) / 0.35;
+
+    const p = o.overtakerId === myPlayerId ? myInterp : interp.get(o.overtakerId);
+    if (!p) continue;
+
+    const canvasX = TRACK_CENTER_X + (p.x || 0);
+    const baseY   = o.overtakerId === myPlayerId
+      ? PLAYER_RENDER_Y
+      : PLAYER_RENDER_Y - ((p.y || 0) - (myInterp.y || 0));
+    // Float upward over lifetime, start above player head
+    const bubbleY = baseY - 68 - age * 30;
+
+    const tw  = ctx.measureText(o.msg).width;
+    const pad = 7;
+    const bw  = tw + pad * 2;
+    const bh  = 20;
+    const bx  = canvasX - bw / 2;
+    const by  = bubbleY - bh + 4;
+
+    ctx.globalAlpha = Math.max(0, alpha);
+
+    // Bubble background
+    ctx.fillStyle = o.isTeam ? 'rgba(56,142,60,0.9)' : 'rgba(183,28,28,0.9)';
+    ctx.beginPath();
+    ctx.roundRect(bx, by, bw, bh, 5);
+    ctx.fill();
+
+    // Tail pointing down toward player
+    ctx.beginPath();
+    ctx.moveTo(canvasX - 5, by + bh);
+    ctx.lineTo(canvasX + 5, by + bh);
+    ctx.lineTo(canvasX,     by + bh + 6);
+    ctx.closePath();
+    ctx.fill();
+
+    // Text
+    ctx.fillStyle = '#fff';
+    ctx.fillText(o.msg, canvasX, by + bh - 5);
+  }
+  ctx.globalAlpha = 1;
   ctx.restore();
 }
 
