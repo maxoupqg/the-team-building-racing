@@ -65,13 +65,14 @@ io.on('connection', (socket) => {
   socket.emit('server_config', { uniqueSession: UNIQUE_SESSION });
 
   // Create a new room
-  socket.on('create_room', ({ playerName, playerColor }) => {
+  socket.on('create_room', ({ playerName, playerColor, avatarId }) => {
+    const avId = Math.min(7, Math.max(0, parseInt(avatarId) || 0));
     if (UNIQUE_SESSION) {
       // In unique session mode, redirect to join MAIN
       const name  = String(playerName  || 'Player').slice(0, 16);
       const color = String(playerColor || '#ff0000');
       const room  = rooms.get(UNIQUE_ROOM_CODE);
-      room.addPlayer(socket.id, name, color, room.players.size === 0);
+      room.addPlayer(socket.id, name, color, room.players.size === 0, avId);
       socket.join(UNIQUE_ROOM_CODE);
       room.emitRoomJoined(socket);
       return;
@@ -81,7 +82,7 @@ io.on('connection', (socket) => {
     const code  = generateCode();
     const room  = new Room(code, io);
 
-    room.addPlayer(socket.id, name, color, true /* isHost */);
+    room.addPlayer(socket.id, name, color, true /* isHost */, avId);
     rooms.set(code, room);
 
     socket.join(code);
@@ -90,7 +91,8 @@ io.on('connection', (socket) => {
   });
 
   // Join an existing room
-  socket.on('join_room', ({ roomCode, playerName, playerColor }) => {
+  socket.on('join_room', ({ roomCode, playerName, playerColor, avatarId }) => {
+    const avId  = Math.min(7, Math.max(0, parseInt(avatarId) || 0));
     const code  = UNIQUE_SESSION ? UNIQUE_ROOM_CODE : String(roomCode || '').toUpperCase().trim();
     const name  = String(playerName  || 'Player').slice(0, 16);
     const color = String(playerColor || '#0000ff');
@@ -106,7 +108,7 @@ io.on('connection', (socket) => {
     }
 
     const becomeHost = UNIQUE_SESSION && room.players.size === 0;
-    room.addPlayer(socket.id, name, color, becomeHost);
+    room.addPlayer(socket.id, name, color, becomeHost, avId);
     socket.join(code);
     room.emitRoomJoined(socket);
     console.log(`[Room] ${name} joined ${code}`);

@@ -51,8 +51,8 @@ class Room {
 
   // ── Player management ──────────────────────────────────────────────────────
 
-  addPlayer(socketId, name, color, isHost = false) {
-    this.players.set(socketId, { id: socketId, name, color, isHost });
+  addPlayer(socketId, name, color, isHost = false, avatarId = 0) {
+    this.players.set(socketId, { id: socketId, name, color, isHost, avatarId });
     if (isHost) this.hostId = socketId;
 
     if (!this.standings.has(socketId)) {
@@ -60,6 +60,7 @@ class Room {
         id:          socketId,
         name,
         color,
+        avatarId:    avatarId || 0,
         totalPoints: 0,
         streak:      0,   // consecutive wins
       });
@@ -181,18 +182,23 @@ class Room {
 
   _playerList() {
     return [...this.players.values()].map(p => ({
-      id:     p.id,
-      name:   p.name,
-      color:  p.color,
-      isHost: p.isHost,
-      ready:  this.readyPlayers.has(p.id),
+      id:       p.id,
+      name:     p.name,
+      color:    p.color,
+      isHost:   p.isHost,
+      ready:    this.readyPlayers.has(p.id),
+      avatarId: p.avatarId || 0,
     }));
   }
 
   _standingsList() {
     return [...this.standings.values()]
       .sort((a, b) => b.totalPoints - a.totalPoints)
-      .map((s, i) => ({ ...s, position: i + 1 }));
+      .map((s, i) => ({
+        ...s,
+        avatarId: s.avatarId || (this.players.get(s.id) || {}).avatarId || 0,
+        position: i + 1,
+      }));
   }
 
   // ── Ready system ──────────────────────────────────────────────────────────
@@ -273,9 +279,10 @@ class Room {
 
     const seed = Math.floor(Math.random() * 0xFFFFFFFF);
     const playerList = [...this.players.values()].map(p => ({
-      id:    p.id,
-      name:  p.name,
-      color: p.color,
+      id:       p.id,
+      name:     p.name,
+      color:    p.color,
+      avatarId: p.avatarId || 0,
     }));
 
     this.currentRace = new Race(
@@ -284,7 +291,7 @@ class Room {
       this.io,
       this.code,
       (finishOrder, playerStates) => this._onRaceFinished(finishOrder, playerStates),
-      { powerUpsEnabled: this.powerUpsEnabled },
+      { powerUpsEnabled: this.powerUpsEnabled, teamMode: this.teamMode, teams: this.teams },
     );
 
     this.currentRace.start();
@@ -326,6 +333,7 @@ class Room {
         playerId,
         name:          pState.name,
         color:         pState.color,
+        avatarId:      (this.players.get(playerId) || {}).avatarId || 0,
         position,
         finishTime:    pState.finishTime,
         maxCombo:      pState.maxCombo || 0,
@@ -333,7 +341,8 @@ class Room {
         points:        pts,
         comboBonus,
         streakBonus,
-        totalPoints: standing.totalPoints,
+        totalPoints:   standing.totalPoints,
+        teamBoostPct:  Math.round((pState.teamBoostMult - 1) * 100),
       });
     }
 

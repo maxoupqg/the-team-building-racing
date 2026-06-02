@@ -43,14 +43,17 @@ class Race {
 
     this.obstacles = generateObstacles(seed, TRACK_LENGTH);
     this.powerUps  = options.powerUpsEnabled ? generatePowerUps(TRACK_LENGTH) : [];
+    this.teamMode  = options.teamMode || false;
+    this.teams     = options.teams    || [];
 
     // Build players map
     this.players = new Map();
     for (const p of playerList) {
       this.players.set(p.id, {
-        id:    p.id,
-        name:  p.name,
-        color: p.color,
+        id:       p.id,
+        name:     p.name,
+        color:    p.color,
+        avatarId: p.avatarId || 0,
         x:     0,
         y:     0,
         state: 'running',
@@ -61,9 +64,10 @@ class Race {
         speed: BASE_SPEED,
         pendingObstacles:   new Map(),  // id -> { actionDone, correctAction }
         processedObstacles: new Set(),
-        finished:   false,
-        finishTime: null,
-        progress:   0,
+        finished:      false,
+        finishTime:    null,
+        progress:      0,
+        teamBoostMult: 1,
         // power-up state
         boostTimer:        0,
         shielded:          false,
@@ -98,10 +102,11 @@ class Race {
       powerUps:    [],
       trackLength: TRACK_LENGTH,
       players:     [...this.players.values()].map(p => ({
-        i:     this.playerIndex.get(p.id),
-        id:    p.id,
-        name:  p.name,
-        color: p.color,
+        i:        this.playerIndex.get(p.id),
+        id:       p.id,
+        name:     p.name,
+        color:    p.color,
+        avatarId: p.avatarId || 0,
       })),
       constants: {
         TRACK_LENGTH,
@@ -261,7 +266,7 @@ class Race {
       player.slowTimer = Math.max(0, player.slowTimer - DT * 1000);
     }
 
-    player.speed = BASE_SPEED * (1 + player.combo * COMBO_SPEED_BONUS) * rubberBand * powerMult;
+    player.speed = BASE_SPEED * (1 + player.combo * COMBO_SPEED_BONUS) * rubberBand * powerMult * player.teamBoostMult;
     player.y += player.speed * DT;
 
     // 5. Power-up pickup (each player independent, only if visible for this player)
@@ -333,6 +338,33 @@ class Race {
         position,
         finishTime: player.finishTime,
       });
+
+      // Team boost: positions 1-5 boost unfinished teammates
+      const TEAM_FINISH_BOOSTS = [0.12, 0.09, 0.06, 0.04, 0.02];
+      if (this.teamMode && position <= 5) {
+        const boostFrac = TEAM_FINISH_BOOSTS[position - 1];
+        const myTeam = this.teams.find(t => t.playerIds.includes(player.id));
+        if (myTeam) {
+          const boostedPlayers = [];
+          for (const tid of myTeam.playerIds) {
+            if (tid === player.id) continue;
+            const teammate = this.players.get(tid);
+            if (teammate && !teammate.finished) {
+              teammate.teamBoostMult += boostFrac;
+              boostedPlayers.push({ id: tid, totalBoostPct: Math.round((teammate.teamBoostMult - 1) * 100) });
+            }
+          }
+          if (boostedPlayers.length > 0) {
+            this.io.to(this.roomCode).emit('team_boost', {
+              fromName:      player.name,
+              fromColor:     player.color,
+              position,
+              boostPct:      Math.round(boostFrac * 100),
+              boostedPlayers,
+            });
+          }
+        }
+      }
     }
 
     // 8. Progress
