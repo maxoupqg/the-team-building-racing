@@ -38,6 +38,8 @@ class Room {
     this.currentRace = null;
     this.lastResults = null;
     this.powerUpsEnabled = false;
+    this.level = 1;
+    this.autoLevel = true;  // auto-increment every 2 races until level 3
 
     // Team mode
     this.teamMode = false;
@@ -111,6 +113,12 @@ class Room {
     this._emitLobbyUpdate();
   }
 
+  toggleLevel() {
+    this.level = this.level >= 3 ? 1 : this.level + 1;
+    this.autoLevel = false;
+    this._emitLobbyUpdate();
+  }
+
   toggleTeamMode() {
     this.teamMode = !this.teamMode;
     if (this.teamMode) {
@@ -177,6 +185,7 @@ class Room {
       powerUpsEnabled: this.powerUpsEnabled,
       teamMode:        this.teamMode,
       teams:           this.teams,
+      level:           this.level,
     });
   }
 
@@ -291,7 +300,7 @@ class Room {
       this.io,
       this.code,
       (finishOrder, playerStates) => this._onRaceFinished(finishOrder, playerStates),
-      { powerUpsEnabled: this.powerUpsEnabled, teamMode: this.teamMode, teams: this.teams },
+      { powerUpsEnabled: this.powerUpsEnabled, teamMode: this.teamMode, teams: this.teams, level: this.level },
     );
 
     this.currentRace.start();
@@ -374,6 +383,10 @@ class Room {
     this.currentRace = null;
     this.state = 'lobby';
     this.readyPlayers.clear();
+    // Auto-increment level every 2 races (stops at 3, disabled if host set level manually)
+    if (this.autoLevel && this.raceNumber % 2 === 0 && this.level < 3) {
+      this.level++;
+    }
     this._emitLobbyUpdate();
   }
 
@@ -382,6 +395,8 @@ class Room {
     this._cancelReadyCountdown();
     this.state      = 'lobby';
     this.raceNumber = 0;
+    this.level      = 1;
+    this.autoLevel  = true;
     this.lastResults = null;
     this.readyPlayers.clear();
     this.standings.clear();
@@ -404,6 +419,7 @@ class Room {
       powerUpsEnabled: this.powerUpsEnabled,
       teamMode:        this.teamMode,
       teams:           this.teams,
+      level:           this.level,
     });
   }
 
@@ -418,6 +434,7 @@ class Room {
       powerUpsEnabled: this.powerUpsEnabled,
       teamMode:        this.teamMode,
       teams:           this.teams,
+      level:           this.level,
     });
     // Notify everyone else
     this._emitLobbyUpdate();

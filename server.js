@@ -190,11 +190,25 @@ io.on('connection', (socket) => {
     room.togglePowerUps();
   });
 
+  // Host toggles difficulty level (lobby only)
+  socket.on('toggle_level', () => {
+    const room = findRoomByPlayerId(socket.id);
+    if (!room || !room.isHost(socket.id) || room.state !== 'lobby') return;
+    room.toggleLevel();
+  });
+
   // Host toggles team mode (lobby only)
   socket.on('toggle_teams', () => {
     const room = findRoomByPlayerId(socket.id);
     if (!room || !room.isHost(socket.id) || room.state !== 'lobby') return;
     room.toggleTeamMode();
+  });
+
+  // Overtake message (broadcast to all)
+  socket.on('overtake', ({ passedId, msg, isTeam }) => {
+    const room = findRoomByPlayerId(socket.id);
+    if (!room || room.state !== 'racing') return;
+    io.to(room.code).emit('overtake', { overtakerId: socket.id, passedId, msg, isTeam });
   });
 
   // Emoji reaction during race

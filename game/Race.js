@@ -41,7 +41,8 @@ class Race {
     this.onFinished = onFinished;
     this.startTime = Date.now();
 
-    this.obstacles = generateObstacles(seed, TRACK_LENGTH);
+    this.level     = options.level    || 1;
+    this.obstacles = generateObstacles(seed, TRACK_LENGTH, this.level);
     this.powerUps  = options.powerUpsEnabled ? generatePowerUps(TRACK_LENGTH) : [];
     this.teamMode  = options.teamMode || false;
     this.teams     = options.teams    || [];
@@ -101,6 +102,7 @@ class Race {
       obstacles:   this.obstacles,
       powerUps:    [],
       trackLength: TRACK_LENGTH,
+      level:       this.level,
       players:     [...this.players.values()].map(p => ({
         i:        this.playerIndex.get(p.id),
         id:       p.id,
@@ -419,6 +421,7 @@ class Race {
       case 'wall_left':  return 'dodge_right';
       case 'wall_right': return 'dodge_left';
       case 'crate':      return 'attack';
+      case 'split':      return 'split';
       default:           return 'none';
     }
   }
@@ -439,6 +442,8 @@ class Race {
         if (!inCollision && player.y >= obs.y - 80) return true;
         return false;
       }
+      case 'split':
+        return player.x < 0 ? player.state === 'jumping' : player.state === 'sliding';
       default:           return false;
     }
   }

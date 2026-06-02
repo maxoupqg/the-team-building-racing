@@ -102,6 +102,7 @@ let finishNotifications = [];  // { text, expiry }
 // Screen shake
 let shakeTimer    = 0;
 let shakePrevCombo = 0;
+let comboHalved   = false;
 
 // Floating emoji reactions
 let floatingReactions = [];  // { emoji, name, color, playerId, spawnTime, duration }
@@ -115,6 +116,16 @@ let commentPrevComboMap  = new Map();
 let comboParticles        = [];  // { x, y, vx, vy, life, color, size }
 let particlePrevCombo     = 0;
 
+// Overtake detection
+let playersBehindMe      = new Set();
+let overtakeCooldowns    = new Map(); // playerId → last trigger timestamp
+const OVERTAKE_COOLDOWN_MS = 10000;
+const ROAST_MSGS = ['CHEH !', 'On se revoit à la ligne d\'arrivée 👋', 'Ça va l\'escargot ? 🐌', 'Bah alors on est en zone 30 ? 🚗'];
+const HYPE_MSGS  = ['Vas-y !', 'Tu peux le faire 💪', 'Pense à prendre les boosts ⚡', 'Un pour tous… 🤝'];
+
+// Floating overtake speech bubbles (visible to all)
+let floatingOvertakes = []; // { passedId, msg, isTeam, spawnTime }
+
 // Power-ups
 let visiblePowerUps       = new Map(); // id -> pu, unlocked by server per-player
 let powerUpsEnabled       = false;
@@ -122,6 +133,7 @@ let powerUpsEnabled       = false;
 // Teams
 let teamMode              = false;
 let currentTeams          = [];  // [{ id, name, color, playerIds, members }]
+let currentLevel          = 1;
 
 // ── Sound engine (Web Audio API — no files) ───────────────────────────────────
 let _audioCtx = null;
@@ -206,6 +218,10 @@ function soundComboTick(combo) {
 function soundComboMiss() {
   _tone(90, 'square', 0.18, 0.22);
   _sweep(200, 80, 'sawtooth', 0.15, 0.1);
+}
+
+function soundComboHalf() {
+  _sweep(280, 130, 'sine', 0.12, 0.05);
 }
 
 function soundPowerUp() {
@@ -323,6 +339,11 @@ document.getElementById('btn-toggle-teams').addEventListener('click', () => {
   socket.emit('toggle_teams');
 });
 
+document.getElementById('btn-toggle-level').addEventListener('click', () => {
+  if (!isHost) return;
+  socket.emit('toggle_level');
+});
+
 document.getElementById('btn-claim-host').addEventListener('click', () => {
   socket.emit('claim_host');
 });
@@ -355,12 +376,13 @@ function makeAvatarIcon(avatarId, size) {
   return c;
 }
 
-function renderLobby(players, hostId, standings, raceNum, puEnabled, teams, tmMode) {
+function renderLobby(players, hostId, standings, raceNum, puEnabled, teams, tmMode, lvl) {
   isHost = hostId === myPlayerId;
   raceNumber = raceNum || 0;
   powerUpsEnabled = !!puEnabled;
   teamMode = !!tmMode;
   currentTeams = teams || [];
+  currentLevel = lvl || 1;
 
   const btnPU = document.getElementById('btn-toggle-powerups');
   btnPU.textContent  = powerUpsEnabled ? '⚡ Activés' : '⚡ Désactivés';
@@ -371,6 +393,11 @@ function renderLobby(players, hostId, standings, raceNum, puEnabled, teams, tmMo
   btnTM.textContent = teamMode ? '👥 Équipes on' : '👥 Équipes off';
   btnTM.classList.toggle('active', teamMode);
   btnTM.disabled = !isHost;
+
+  const btnLV = document.getElementById('btn-toggle-level');
+  btnLV.textContent = `🎯 Niveau ${currentLevel}`;
+  btnLV.classList.toggle('active', currentLevel > 1);
+  btnLV.disabled = !isHost || raceNum > 0;
 
   document.getElementById('player-count').textContent = `(${players.length})`;
 
@@ -653,7 +680,7 @@ socket.on('room_created', (data) => {
   myRoomCode  = data.code;
   isHost      = true;
   document.getElementById('room-code-text').textContent = data.code;
-  renderLobby(data.players, data.hostId, data.standings, data.raceNumber, data.powerUpsEnabled, data.teams, data.teamMode);
+  renderLobby(data.players, data.hostId, data.standings, data.raceNumber, data.powerUpsEnabled, data.teams, data.teamMode, data.level);
   generateQRCode(data.code);
   showScreen('screen-lobby');
   gameState = 'lobby';
@@ -663,7 +690,7 @@ socket.on('room_joined', (data) => {
   myPlayerId = data.playerId;
   myRoomCode = data.code;
   document.getElementById('room-code-text').textContent = data.code;
-  renderLobby(data.players, data.hostId, data.standings, data.raceNumber, data.powerUpsEnabled, data.teams, data.teamMode);
+  renderLobby(data.players, data.hostId, data.standings, data.raceNumber, data.powerUpsEnabled, data.teams, data.teamMode, data.level);
   generateQRCode(data.code);
   showScreen('screen-lobby');
   gameState = 'lobby';
@@ -671,7 +698,7 @@ socket.on('room_joined', (data) => {
 
 socket.on('lobby_update', (data) => {
   isHost = data.hostId === myPlayerId;
-  renderLobby(data.players, data.hostId, data.standings, data.raceNumber, data.powerUpsEnabled, data.teams, data.teamMode);
+  renderLobby(data.players, data.hostId, data.standings, data.raceNumber, data.powerUpsEnabled, data.teams, data.teamMode, data.level);
   if (gameState === 'results' || gameState === 'session_end') {
     gameState = 'lobby';
     showScreen('screen-lobby');
@@ -688,7 +715,7 @@ socket.on('race_start', (data) => {
   if (data.constants) Object.assign(C, data.constants);
 
   // Regenerate obstacles client-side using same seed
-  obstacles = generateObstacles(data.seed, data.trackLength || C.TRACK_LENGTH);
+  obstacles = generateObstacles(data.seed, data.trackLength || C.TRACK_LENGTH, data.level || 1);
 
   // Initialize player states and index map from server data
   playerStates   = new Map();
@@ -710,6 +737,8 @@ socket.on('race_start', (data) => {
     if (p.i !== undefined) playerIndexMap.set(p.i, p.id);
   }
 
+  currentLevel = data.level || 1;
+
   // Reset input
   input = { left: false, right: false, jump: false, slide: false, attack: false };
   prevInputJson = '';
@@ -727,7 +756,11 @@ socket.on('race_start', (data) => {
   floatingReactions    = [];
   shakeTimer           = 0;
   shakePrevCombo       = 0;
+  comboHalved          = false;
   comboParticles       = [];
+  playersBehindMe      = new Set();
+  overtakeCooldowns    = new Map();
+  floatingOvertakes    = [];
   particlePrevCombo    = 0;
   visiblePowerUps      = new Map();
 
@@ -780,8 +813,9 @@ socket.on('game_state', (data) => {
 
   // Combo sounds
   const myNowCombo = playerStates.get(myPlayerId)?.combo ?? 0;
-  if (myNowCombo > myPrevCombo)                  soundComboTick(myNowCombo);
-  else if (myPrevCombo > 0 && myNowCombo === 0)  soundComboMiss();
+  if (myNowCombo > myPrevCombo)                                                         soundComboTick(myNowCombo);
+  else if (myPrevCombo > 0 && myNowCombo === 0)                                         soundComboMiss();
+  else if (myPrevCombo > 0 && myNowCombo > 0 && myNowCombo < myPrevCombo * 0.6)         soundComboHalf();
 
   checkCommentatorEvents([...playerStates.values()]);
 });
@@ -895,6 +929,11 @@ socket.on('bomb_hit', () => {
   addNotif('💣 Ralenti par une bombe ! (4s)');
 });
 
+socket.on('overtake', (data) => {
+  floatingOvertakes.push({ ...data, spawnTime: Date.now() });
+  if (floatingOvertakes.length > 10) floatingOvertakes.shift();
+});
+
 socket.on('reaction', (data) => {
   const p = playerStates.get(data.playerId);
   if (!p) return;
@@ -976,9 +1015,37 @@ function renderFrame() {
   const interp = getBufferedStates();
   const myInterp = interp.get(myPlayerId) || myPlayer;
 
-  // Detect miss (combo reset) → trigger screen shake
+  // Overtake detection (only after 2% progress to let players spread out at race start)
+  if (!myInterp.finished && (myInterp.progress || 0) > 0.02) {
+    const myProg   = myInterp.progress || 0;
+    const newBehind = new Set();
+    for (const [id, p] of interp) {
+      if (id === myPlayerId || p.finished) continue;
+      if ((p.progress || 0) < myProg) newBehind.add(id);
+    }
+    const now = Date.now();
+    for (const id of newBehind) {
+      if (!playersBehindMe.has(id) && (now - (overtakeCooldowns.get(id) || 0)) > OVERTAKE_COOLDOWN_MS) {
+        const passed = interp.get(id);
+        if (passed) {
+          const teammate = teamMode && currentTeams.some(t => t.playerIds.includes(myPlayerId) && t.playerIds.includes(id));
+          const msgs = teammate ? HYPE_MSGS : ROAST_MSGS;
+          const msg  = msgs[Math.floor(Math.random() * msgs.length)];
+          socket.emit('overtake', { passedId: id, msg, isTeam: teammate });
+          overtakeCooldowns.set(id, now);
+        }
+      }
+    }
+    playersBehindMe = newBehind;
+  }
+
+  // Detect miss (combo reset or halved) → trigger screen shake
   const curCombo = myInterp.combo || 0;
-  if (shakePrevCombo > 0 && curCombo === 0) shakeTimer = 350;
+  if (shakePrevCombo > 0 && curCombo === 0) {
+    shakeTimer = 350; comboHalved = false;
+  } else if (shakePrevCombo > 0 && curCombo > 0 && curCombo < shakePrevCombo * 0.6) {
+    shakeTimer = 140; comboHalved = true;
+  }
   shakePrevCombo = curCombo;
 
   // Detect combo increase → spawn particles
@@ -1016,11 +1083,16 @@ function renderFrame() {
   drawComboParticles();
   ctx.restore();
 
-  // Red flash overlay (outside shake so it's stable)
+  // Flash overlay (outside shake so it's stable)
   if (shakeTimer > 0) {
     ctx.save();
-    ctx.globalAlpha = (shakeTimer / 350) * 0.28;
-    ctx.fillStyle = '#ff1744';
+    if (comboHalved) {
+      ctx.globalAlpha = (shakeTimer / 140) * 0.16;
+      ctx.fillStyle = '#ff9800';
+    } else {
+      ctx.globalAlpha = (shakeTimer / 350) * 0.28;
+      ctx.fillStyle = '#ff1744';
+    }
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
     ctx.restore();
   }
@@ -1029,6 +1101,7 @@ function renderFrame() {
 
   drawProgressBar(interp);
   drawFloatingReactions(interp, myInterp);
+  drawOvertakeBubbles(interp, myInterp);
 }
 
 function getBufferedStates() {
@@ -1194,19 +1267,27 @@ function drawObstacleHints(myInterp) {
   for (const obs of obstacles) {
     const canvasY = PLAYER_RENDER_Y - (obs.y - myInterp.y);
     if (canvasY < -100 || canvasY > 700) continue;
-    drawObstacleHint(obs, canvasY);
+    drawObstacleHint(obs, canvasY, myInterp.x || 0);
   }
 }
 
 // Shadows drawn before players (player passes over shadow)
 function drawObstaclesShadows(myInterp) {
   for (const obs of obstacles) {
-    if (obs.type !== 'barrier') continue;
+    if (obs.type !== 'barrier' && obs.type !== 'split') continue;
     const cy = PLAYER_RENDER_Y - (obs.y - myInterp.y);
     if (cy < -100 || cy > 700) continue;
-    if (spriteBareerShadow.complete && spriteBareerShadow.naturalHeight > 0) {
-      // Shadow starts at cy+20 (bottom edge of bareer_up, which is centered on cy)
+    if (!spriteBareerShadow.complete || spriteBareerShadow.naturalHeight === 0) continue;
+    if (obs.type === 'barrier') {
       ctx.drawImage(spriteBareerShadow, TRACK_LEFT, cy + 20, TRACK_RENDER_W, 40);
+    } else {
+      const halfW = TRACK_RENDER_W / 2;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(TRACK_LEFT + halfW, 0, halfW, 700);
+      ctx.clip();
+      ctx.drawImage(spriteBareerShadow, TRACK_LEFT, cy + 20, TRACK_RENDER_W, 40);
+      ctx.restore();
     }
   }
 }
@@ -1214,12 +1295,20 @@ function drawObstaclesShadows(myInterp) {
 // Barrier bodies drawn after players (player passes under barrier)
 function drawObstaclesFront(myInterp) {
   for (const obs of obstacles) {
-    if (obs.type !== 'barrier') continue;
+    if (obs.type !== 'barrier' && obs.type !== 'split') continue;
     const cy = PLAYER_RENDER_Y - (obs.y - myInterp.y);
     if (cy < -100 || cy > 700) continue;
-    if (spriteBareerUp.complete && spriteBareerUp.naturalHeight > 0) {
-      // bareer_up centered on cy — 18px bar is at center of the 40px image
+    if (!spriteBareerUp.complete || spriteBareerUp.naturalHeight === 0) continue;
+    if (obs.type === 'barrier') {
       ctx.drawImage(spriteBareerUp, TRACK_LEFT, cy - 20, TRACK_RENDER_W, 40);
+    } else {
+      const halfW = TRACK_RENDER_W / 2;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(TRACK_LEFT + halfW, 0, halfW, 700);
+      ctx.clip();
+      ctx.drawImage(spriteBareerUp, TRACK_LEFT, cy - 20, TRACK_RENDER_W, 40);
+      ctx.restore();
     }
   }
 }
@@ -1279,6 +1368,35 @@ function drawObstacle(obs, cx, cy) {
       });
       break;
     }
+    case 'split': {
+      const halfW = TRACK_RENDER_W / 2;
+      // Left half: rondin sprite (clipped)
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(TRACK_LEFT, 0, halfW, 700);
+      ctx.clip();
+      if (spriteRondin.complete && spriteRondin.naturalHeight > 0) {
+        ctx.drawImage(spriteRondin, TRACK_LEFT, cy - 25, TRACK_RENDER_W, 50);
+      } else {
+        ctx.fillStyle = '#8B4513';
+        ctx.fillRect(TRACK_LEFT, cy - 12, halfW, 25);
+      }
+      ctx.restore();
+      // Right half barrier sprite is rendered in shadow/front passes
+      // Fallback gray bar if sprites not loaded
+      if (!spriteBareerUp.complete || spriteBareerUp.naturalHeight === 0) {
+        ctx.fillStyle = '#888';
+        ctx.fillRect(TRACK_LEFT + halfW, cy - 9, halfW, 18);
+      }
+      // Center divider
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(TRACK_LEFT + halfW, cy - 28);
+      ctx.lineTo(TRACK_LEFT + halfW, cy + 28);
+      ctx.stroke();
+      break;
+    }
   }
   ctx.restore();
 }
@@ -1293,13 +1411,33 @@ function drawGhostPlayers(interp, myInterp) {
     ctx.save();
     // Shadow
     ctx.beginPath();
-    ctx.ellipse(canvasX, canvasY + 16, 13, 5, 0, 0, Math.PI * 2);
+    if (p.state === 'sliding') {
+      ctx.ellipse(canvasX, canvasY + 12, 22, 4, 0, 0, Math.PI * 2);
+    } else if (p.state === 'jumping') {
+      ctx.ellipse(canvasX, canvasY + 16, 8, 3, 0, 0, Math.PI * 2);
+    } else {
+      ctx.ellipse(canvasX, canvasY + 16, 13, 5, 0, 0, Math.PI * 2);
+    }
     ctx.fillStyle = 'rgba(0,0,0,0.25)';
     ctx.fill();
     // Avatar sprite (semi-transparent for opponents)
     ctx.globalAlpha = 0.55;
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(getAvatarCanvas(p.avatarId || 0, 32), canvasX - 16, canvasY - 16, 32, 32);
+    if (p.state === 'sliding') {
+      ctx.save();
+      ctx.translate(canvasX, canvasY + 7);
+      ctx.scale(1.55, 0.52);
+      ctx.drawImage(getAvatarCanvas(p.avatarId || 0, 32), -16, -16, 32, 32);
+      ctx.restore();
+    } else if (p.state === 'jumping') {
+      ctx.save();
+      ctx.translate(canvasX, canvasY - 10);
+      ctx.scale(1.18, 1.18);
+      ctx.drawImage(getAvatarCanvas(p.avatarId || 0, 32), -16, -16, 32, 32);
+      ctx.restore();
+    } else {
+      ctx.drawImage(getAvatarCanvas(p.avatarId || 0, 32), canvasX - 16, canvasY - 16, 32, 32);
+    }
     ctx.globalAlpha = 1;
     // Name
     ctx.font = '11px Inter, system-ui, sans-serif';
@@ -1356,13 +1494,33 @@ function drawMyPlayer(p, rb = 0) {
   ctx.save();
   // Shadow
   ctx.beginPath();
-  ctx.ellipse(cx, cy + 18, 15, 6, 0, 0, Math.PI * 2);
+  if (p.state === 'sliding') {
+    ctx.ellipse(cx, cy + 14, 26, 5, 0, 0, Math.PI * 2);
+  } else if (p.state === 'jumping') {
+    ctx.ellipse(cx, cy + 18, 9, 3, 0, 0, Math.PI * 2);
+  } else {
+    ctx.ellipse(cx, cy + 18, 15, 6, 0, 0, Math.PI * 2);
+  }
   ctx.fillStyle = 'rgba(0,0,0,0.35)';
   ctx.fill();
 
   // Avatar sprite
   ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(getAvatarCanvas(p.avatarId || 0, 36), cx - 18, cy - 18, 36, 36);
+  if (p.state === 'sliding') {
+    ctx.save();
+    ctx.translate(cx, cy + 8);
+    ctx.scale(1.55, 0.52);
+    ctx.drawImage(getAvatarCanvas(p.avatarId || 0, 36), -18, -18, 36, 36);
+    ctx.restore();
+  } else if (p.state === 'jumping') {
+    ctx.save();
+    ctx.translate(cx, cy - 12);
+    ctx.scale(1.18, 1.18);
+    ctx.drawImage(getAvatarCanvas(p.avatarId || 0, 36), -18, -18, 36, 36);
+    ctx.restore();
+  } else {
+    ctx.drawImage(getAvatarCanvas(p.avatarId || 0, 36), cx - 18, cy - 18, 36, 36);
+  }
 
   // State icon — floating badge above avatar, clearly outside the sprite
   const icon = stateToIcon(p.state);
@@ -1442,6 +1600,14 @@ function drawHUD(myInterp, rb = 0) {
   ctx.fillStyle = '#4caf50';
   ctx.textAlign = 'right';
   ctx.fillText(`🏁 ${(progress * 100).toFixed(1)}%`, CANVAS_W - SIDEBAR_X_END - 10, 22);
+
+  // Level badge (for level 2+)
+  if (currentLevel > 1) {
+    ctx.font = 'bold 11px Inter, system-ui, sans-serif';
+    ctx.fillStyle = currentLevel >= 3 ? '#ff1744' : '#ff7043';
+    ctx.textAlign = 'center';
+    ctx.fillText(`⚠ NIVEAU ${currentLevel}`, CANVAS_W / 2, 38);
+  }
 
   // Bottom-left: key hints
   ctx.font = '11px Inter, system-ui, sans-serif';
@@ -1600,9 +1766,32 @@ const OBSTACLE_HINTS = {
   wall_left:  { label: '→ DROITE',   color: '#ff8a65' },
   wall_right: { label: '← GAUCHE',   color: '#ff8a65' },
   crate:      { label: 'Z/W DÉTRUIRE', color: '#ffd54f' },
+  split:      { label: '↑/↓',        color: '#fff' },
 };
 
-function drawObstacleHint(obs, cy) {
+function drawObstacleHint(obs, cy, playerX = 0) {
+  if (obs.type === 'split') {
+    const h = playerX < 0
+      ? { label: '↑ SAUTER',  color: '#4fc3f7' }
+      : { label: '↓ GLISSER', color: '#81c784' };
+    const distToPlayer = PLAYER_RENDER_Y - cy;
+    if (distToPlayer < -30 || distToPlayer > 420) return;
+    const alpha = distToPlayer > 280 ? 1 - (distToPlayer - 280) / 140 : 1;
+    if (alpha <= 0) return;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = 'bold 12px monospace';
+    const tw = ctx.measureText(h.label).width;
+    const hintX = TRACK_CENTER_X;
+    const hintY = cy - 52;
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    ctx.fillRect(hintX - tw / 2 - 6, hintY - 13, tw + 12, 18);
+    ctx.fillStyle = h.color;
+    ctx.textAlign = 'center';
+    ctx.fillText(h.label, hintX, hintY);
+    ctx.restore();
+    return;
+  }
   const hint = OBSTACLE_HINTS[obs.type];
   if (!hint) return;
 
@@ -1680,6 +1869,61 @@ function drawFloatingReactions(interp, myInterp) {
     ctx.fillStyle = r.color;
     ctx.fillText(r.name.slice(0, 8), canvasX, floatY + 16);
   }
+  ctx.restore();
+}
+
+function drawOvertakeBubbles(interp, myInterp) {
+  const DURATION = 2800;
+  const now = Date.now();
+  floatingOvertakes = floatingOvertakes.filter(o => (now - o.spawnTime) < DURATION);
+  if (floatingOvertakes.length === 0) return;
+
+  ctx.save();
+  ctx.font = 'bold 12px Inter, system-ui, sans-serif';
+  ctx.textAlign = 'center';
+
+  for (const o of floatingOvertakes) {
+    const age   = (now - o.spawnTime) / DURATION;
+    const alpha = age < 0.65 ? 1 : 1 - (age - 0.65) / 0.35;
+
+    const p = o.overtakerId === myPlayerId ? myInterp : interp.get(o.overtakerId);
+    if (!p) continue;
+
+    const canvasX = TRACK_CENTER_X + (p.x || 0);
+    const baseY   = o.overtakerId === myPlayerId
+      ? PLAYER_RENDER_Y
+      : PLAYER_RENDER_Y - ((p.y || 0) - (myInterp.y || 0));
+    // Float upward over lifetime, start above player head
+    const bubbleY = baseY - 68 - age * 30;
+
+    const tw  = ctx.measureText(o.msg).width;
+    const pad = 7;
+    const bw  = tw + pad * 2;
+    const bh  = 20;
+    const bx  = canvasX - bw / 2;
+    const by  = bubbleY - bh + 4;
+
+    ctx.globalAlpha = Math.max(0, alpha);
+
+    // Bubble background
+    ctx.fillStyle = o.isTeam ? 'rgba(56,142,60,0.9)' : 'rgba(183,28,28,0.9)';
+    ctx.beginPath();
+    ctx.roundRect(bx, by, bw, bh, 5);
+    ctx.fill();
+
+    // Tail pointing down toward player
+    ctx.beginPath();
+    ctx.moveTo(canvasX - 5, by + bh);
+    ctx.lineTo(canvasX + 5, by + bh);
+    ctx.lineTo(canvasX,     by + bh + 6);
+    ctx.closePath();
+    ctx.fill();
+
+    // Text
+    ctx.fillStyle = '#fff';
+    ctx.fillText(o.msg, canvasX, by + bh - 5);
+  }
+  ctx.globalAlpha = 1;
   ctx.restore();
 }
 

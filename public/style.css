@@ -226,6 +226,10 @@ input[type="text"]:focus { border-color: var(--accent); }
   border-color: #4caf50;
   color:        #4caf50;
 }
+#btn-toggle-level.active {
+  border-color: #ff7043;
+  color:        #ff7043;
+}
 .btn-outline:disabled {
   opacity: .45;
   cursor:  default;
