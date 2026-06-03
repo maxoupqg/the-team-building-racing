@@ -38,7 +38,8 @@ class Room {
     this.currentRace = null;
     this.lastResults = null;
     this.powerUpsEnabled = false;
-    this.level = 1;
+    this.level     = 1;
+    this.autoLevel = true;
 
     // Team mode
     this.teamMode = false;
@@ -72,8 +73,16 @@ class Room {
 
   removePlayer(socketId) {
     this.players.delete(socketId);
-    this.standings.delete(socketId);
     this.readyPlayers.delete(socketId);
+
+    if (this.state === 'racing' && this.currentRace) {
+      // Mid-race: keep standing (points preserved), force-finish in race
+      const standing = this.standings.get(socketId);
+      if (standing) standing.disconnected = true;
+      this.currentRace.removePlayer(socketId);
+    } else {
+      this.standings.delete(socketId);
+    }
 
     if (this.hostId === socketId) {
       const next = this.players.values().next().value;
@@ -106,6 +115,11 @@ class Room {
   }
 
   // ── Lobby helpers ──────────────────────────────────────────────────────────
+
+  toggleAutoLevel() {
+    this.autoLevel = !this.autoLevel;
+    this._emitLobbyUpdate();
+  }
 
   togglePowerUps() {
     this.powerUpsEnabled = !this.powerUpsEnabled;
@@ -184,6 +198,7 @@ class Room {
       teamMode:        this.teamMode,
       teams:           this.teams,
       level:           this.level,
+      autoLevel:       this.autoLevel,
     });
   }
 
@@ -318,18 +333,19 @@ class Room {
       const standing = this.standings.get(playerId);
       if (!standing || !pState) continue;
 
-      const pts        = pointsForPosition(position, finishOrder.length);
-      const comboBonus = comboPointsBonus(pState.maxCombo || 0);
+      const dc = !!pState.disconnected;
+      const pts        = dc ? 0 : pointsForPosition(position, finishOrder.length);
+      const comboBonus = dc ? 0 : comboPointsBonus(pState.maxCombo || 0);
 
       // Streak bonus: +3 for each consecutive win after the first
       let streakBonus = 0;
-      if (position === 1) {
-        standing.streak = Math.min(standing.streak + 1, 3);
-        if (standing.streak > 1) {
-          streakBonus = (standing.streak - 1) * 3;
+      if (!dc) {
+        if (position === 1) {
+          standing.streak = Math.min(standing.streak + 1, 3);
+          if (standing.streak > 1) streakBonus = (standing.streak - 1) * 3;
+        } else {
+          standing.streak = 0;
         }
-      } else {
-        standing.streak = 0;
       }
 
       standing.totalPoints += pts + streakBonus + comboBonus;
@@ -340,7 +356,7 @@ class Room {
         playerId,
         name:          pState.name,
         color:         pState.color,
-        avatarId:      (this.players.get(playerId) || {}).avatarId || 0,
+        avatarId:      (this.players.get(playerId) || {}).avatarId || pState.avatarId || 0,
         position,
         finishTime:    pState.finishTime,
         maxCombo:      pState.maxCombo || 0,
@@ -350,6 +366,7 @@ class Room {
         streakBonus,
         totalPoints:   standing.totalPoints,
         teamBoostPct:  Math.round((pState.teamBoostMult - 1) * 100),
+        disconnected:  dc,
       });
     }
 
@@ -382,7 +399,7 @@ class Room {
     this.state = 'lobby';
     this.readyPlayers.clear();
     // Auto-increment level every 2 races, stops at 3
-    if (this.raceNumber % 2 === 0 && this.level < 3) {
+    if (this.autoLevel && this.raceNumber % 2 === 0 && this.level < 3) {
       this.level++;
     }
     this._emitLobbyUpdate();
@@ -394,6 +411,7 @@ class Room {
     this.state      = 'lobby';
     this.raceNumber = 0;
     this.level      = 1;
+    this.autoLevel  = true;
     this.lastResults = null;
     this.readyPlayers.clear();
     this.standings.clear();
@@ -417,6 +435,7 @@ class Room {
       teamMode:        this.teamMode,
       teams:           this.teams,
       level:           this.level,
+      autoLevel:       this.autoLevel,
     });
   }
 

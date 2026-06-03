@@ -448,6 +448,17 @@ class Race {
     }
   }
 
+  removePlayer(socketId) {
+    const player = this.players.get(socketId);
+    if (!player || player.finished) return;
+    player.finished     = true;
+    player.finishTime   = null;
+    player.disconnected = true;
+    this.finishOrder.push(socketId);
+    const allFinished = [...this.players.values()].every(p => p.finished);
+    if (allFinished) this._endRace();
+  }
+
   _forceEnd() {
     // Mark all unfinished players as done (no finish time)
     for (const player of this.players.values()) {

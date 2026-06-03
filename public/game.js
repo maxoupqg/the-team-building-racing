@@ -344,6 +344,11 @@ document.getElementById('btn-toggle-level').addEventListener('click', () => {
   socket.emit('toggle_level');
 });
 
+document.getElementById('btn-toggle-auto-level').addEventListener('click', () => {
+  if (!isHost) return;
+  socket.emit('toggle_auto_level');
+});
+
 document.getElementById('btn-claim-host').addEventListener('click', () => {
   socket.emit('claim_host');
 });
@@ -376,7 +381,7 @@ function makeAvatarIcon(avatarId, size) {
   return c;
 }
 
-function renderLobby(players, hostId, standings, raceNum, puEnabled, teams, tmMode, lvl) {
+function renderLobby(players, hostId, standings, raceNum, puEnabled, teams, tmMode, lvl, autoLvl) {
   isHost = hostId === myPlayerId;
   raceNumber = raceNum || 0;
   powerUpsEnabled = !!puEnabled;
@@ -398,6 +403,12 @@ function renderLobby(players, hostId, standings, raceNum, puEnabled, teams, tmMo
   btnLV.textContent = `🎯 Niveau ${currentLevel}`;
   btnLV.classList.toggle('active', currentLevel > 1);
   btnLV.disabled = !isHost || raceNum > 0;
+
+  const autoLevelOn = autoLvl !== false;
+  const btnAL = document.getElementById('btn-toggle-auto-level');
+  btnAL.textContent = autoLevelOn ? '📈 Auto ON' : '📈 Auto OFF';
+  btnAL.classList.toggle('active', autoLevelOn);
+  btnAL.disabled = !isHost || raceNum > 0;
 
   document.getElementById('player-count').textContent = `(${players.length})`;
 
@@ -558,14 +569,19 @@ function renderResults(data) {
   rtbody.innerHTML = '';
   data.results.forEach(r => {
     const tr = document.createElement('tr');
-    if (r.position <= 3) tr.classList.add(`pos-${r.position}`);
+    if (r.disconnected) {
+      tr.style.opacity = '0.45';
+    } else if (r.position <= 3) {
+      tr.classList.add(`pos-${r.position}`);
+    }
+    const dcBadge = r.disconnected ? ' <span style="font-size:.7rem;color:#f44">(DC)</span>' : '';
     tr.innerHTML = `
       <td>${r.position}</td>
-      <td>${avatarImg(r.avatarId, 22)}${escapeHtml(r.name)}${r.teamBoostPct > 0 ? ` <span style="font-size:.72rem;color:#4fc3f7;font-weight:700">+${r.teamBoostPct}%⚡</span>` : ''}</td>
-      <td>${formatTime(r.finishTime)}</td>
+      <td>${avatarImg(r.avatarId, 22)}${escapeHtml(r.name)}${dcBadge}${r.teamBoostPct > 0 ? ` <span style="font-size:.72rem;color:#4fc3f7;font-weight:700">+${r.teamBoostPct}%⚡</span>` : ''}</td>
+      <td>${r.disconnected ? '—' : formatTime(r.finishTime)}</td>
       <td>${r.maxCombo > 0 ? `x${r.maxCombo}` : '-'}</td>
       <td>${formatPowerUpCounts(r.powerUpCounts)}</td>
-      <td>+${r.points}${r.comboBonus > 0 ? ` <span style="color:#f90">+${r.comboBonus}⚡</span>` : ''}${r.streakBonus > 0 ? ` <span style="color:#f44">+${r.streakBonus}🔥</span>` : ''}</td>
+      <td>${r.disconnected ? '—' : `+${r.points}${r.comboBonus > 0 ? ` <span style="color:#f90">+${r.comboBonus}⚡</span>` : ''}${r.streakBonus > 0 ? ` <span style="color:#f44">+${r.streakBonus}🔥</span>` : ''}`}</td>
       <td><strong>${r.totalPoints}</strong></td>
     `;
     rtbody.appendChild(tr);
@@ -680,7 +696,7 @@ socket.on('room_created', (data) => {
   myRoomCode  = data.code;
   isHost      = true;
   document.getElementById('room-code-text').textContent = data.code;
-  renderLobby(data.players, data.hostId, data.standings, data.raceNumber, data.powerUpsEnabled, data.teams, data.teamMode, data.level);
+  renderLobby(data.players, data.hostId, data.standings, data.raceNumber, data.powerUpsEnabled, data.teams, data.teamMode, data.level, data.autoLevel);
   generateQRCode(data.code);
   showScreen('screen-lobby');
   gameState = 'lobby';
@@ -690,7 +706,7 @@ socket.on('room_joined', (data) => {
   myPlayerId = data.playerId;
   myRoomCode = data.code;
   document.getElementById('room-code-text').textContent = data.code;
-  renderLobby(data.players, data.hostId, data.standings, data.raceNumber, data.powerUpsEnabled, data.teams, data.teamMode, data.level);
+  renderLobby(data.players, data.hostId, data.standings, data.raceNumber, data.powerUpsEnabled, data.teams, data.teamMode, data.level, data.autoLevel);
   generateQRCode(data.code);
   showScreen('screen-lobby');
   gameState = 'lobby';
@@ -698,7 +714,7 @@ socket.on('room_joined', (data) => {
 
 socket.on('lobby_update', (data) => {
   isHost = data.hostId === myPlayerId;
-  renderLobby(data.players, data.hostId, data.standings, data.raceNumber, data.powerUpsEnabled, data.teams, data.teamMode, data.level);
+  renderLobby(data.players, data.hostId, data.standings, data.raceNumber, data.powerUpsEnabled, data.teams, data.teamMode, data.level, data.autoLevel);
   if (gameState === 'results' || gameState === 'session_end') {
     gameState = 'lobby';
     showScreen('screen-lobby');
