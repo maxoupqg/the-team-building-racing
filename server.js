@@ -190,6 +190,13 @@ io.on('connection', (socket) => {
     room.togglePowerUps();
   });
 
+  // Host toggles auto-level progression (lobby only, before first race)
+  socket.on('toggle_auto_level', () => {
+    const room = findRoomByPlayerId(socket.id);
+    if (!room || !room.isHost(socket.id) || room.state !== 'lobby' || room.raceNumber > 0) return;
+    room.toggleAutoLevel();
+  });
+
   // Host toggles difficulty level (lobby only)
   socket.on('toggle_level', () => {
     const room = findRoomByPlayerId(socket.id);

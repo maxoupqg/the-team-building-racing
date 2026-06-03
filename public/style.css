@@ -205,12 +205,17 @@ input[type="text"]:focus { border-color: var(--accent); }
   color:         var(--accent2);
 }
 
+.powerups-rows {
+  display:        flex;
+  flex-direction: column;
+  gap:            .4rem;
+  margin:         .5rem 0;
+}
 .powerups-row {
-  display:     flex;
-  align-items: center;
+  display:         flex;
+  align-items:     center;
   justify-content: center;
-  gap:         .75rem;
-  margin:      .5rem 0;
+  gap:             .6rem;
 }
 .btn-outline {
   background:    transparent;
