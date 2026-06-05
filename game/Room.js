@@ -99,7 +99,7 @@ class Room {
 
     const newHostId = this.hostId;
     this.io.to(this.code).emit('player_left', { playerId: socketId, newHostId });
-    this._emitLobbyUpdate();
+    if (this.state === 'lobby') this._emitLobbyUpdate();
   }
 
   isEmpty() {
