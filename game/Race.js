@@ -84,7 +84,8 @@ class Race {
     let idx = 0;
     for (const id of this.players.keys()) this.playerIndex.set(id, idx++);
 
-    this.finishOrder   = [];
+    this.finishOrder             = [];
+    this.destroyedCratePositions = new Map(); // obsId → Set<positionIndex>
     this.running       = false;
     this.intervalId    = null;
     this.timeoutId     = null;
@@ -296,30 +297,66 @@ class Race {
       // Add to pending when player enters the approach window
       if (!player.pendingObstacles.has(obs.id)) {
         player.pendingObstacles.set(obs.id, {
-          actionDone:    false,
-          correctAction: this._correctActionFor(obs.type),
+          actionDone:      false,
+          wasInCollision:  false,
+          correctAction:   this._correctActionFor(obs.type),
         });
       }
 
       const pObs = player.pendingObstacles.get(obs.id);
 
-      // Latch on first success — hitbox aligné sur le bord visuel + rayon joueur (w-132)
+      // Track collision zone entry (active positions only) and latch on first success
       if (!pObs.actionDone) {
-        pObs.actionDone = this._checkAction(player, obs);
+        if (obs.type === 'crate' && player.y >= obs.y - 80) {
+          const CRATE_HIT_R = 43;
+          const active = this._getActiveCratePositions(obs);
+          if (active.some(cp => Math.abs(player.x - cp.x) < CRATE_HIT_R)) {
+            pObs.wasInCollision = true;
+          }
+        }
+        const actionResult = this._checkAction(player, obs);
+        if (actionResult) {
+          pObs.actionDone = true;
+          if (obs.type === 'crate') {
+            // Find the specific hit position and mark only it as destroyed
+            const CRATE_HIT_R = 43;
+            const positions = obs.cratePositions || [{ x: obs.x || 0 }];
+            const hitIndex = positions.findIndex((cp, i) => {
+              const destroyed = this.destroyedCratePositions.get(obs.id);
+              return (!destroyed || !destroyed.has(i)) && Math.abs(player.x - cp.x) < CRATE_HIT_R;
+            });
+            if (hitIndex !== -1) {
+              if (!this.destroyedCratePositions.has(obs.id)) {
+                this.destroyedCratePositions.set(obs.id, new Set());
+              }
+              this.destroyedCratePositions.get(obs.id).add(hitIndex);
+              this.io.to(this.roomCode).emit('crate_destroyed', { obsId: obs.id, crateIndex: hitIndex });
+            }
+          }
+        }
+      }
+
+      // If all crate positions destroyed by others → skip neutrally (no combo, no penalty)
+      if (obs.type === 'crate' && !pObs.actionDone && this._getActiveCratePositions(obs).length === 0) {
+        player.pendingObstacles.delete(obs.id);
+        player.processedObstacles.add(obs.id);
+        continue;
       }
 
       // Evaluate when player has cleared the window end
       if (player.y > obs.y + OBSTACLE_WINDOW_END) {
-        const result = pObs.actionDone ? 'SUCCESS' : 'MISS';
         if (pObs.actionDone) {
           player.combo = Math.min(player.combo + 1, 99);
           if (player.combo > player.maxCombo) player.maxCombo = player.combo;
         } else {
-          // Shield absorbs the miss
-          if (player.shielded) {
-            player.shielded = false;
-          } else {
-            player.combo = player.combo > 15 ? Math.floor(player.combo / 2) : 0;
+          // Crate dodge (never entered collision zone) → neutral, no combo change
+          const isMiss = obs.type !== 'crate' || pObs.wasInCollision;
+          if (isMiss) {
+            if (player.shielded) {
+              player.shielded = false;
+            } else {
+              player.combo = player.combo > 15 ? Math.floor(player.combo / 2) : 0;
+            }
           }
         }
         player.pendingObstacles.delete(obs.id);
@@ -414,6 +451,13 @@ class Race {
     }
   }
 
+  _getActiveCratePositions(obs) {
+    const positions = obs.cratePositions || [{ x: obs.x || 0 }];
+    const destroyed = this.destroyedCratePositions.get(obs.id);
+    if (!destroyed) return positions;
+    return positions.filter((_, i) => !destroyed.has(i));
+  }
+
   _correctActionFor(type) {
     switch (type) {
       case 'log':        return 'jump';
@@ -433,14 +477,9 @@ class Race {
       case 'wall_left':  return player.x > (obs.width || 140) - 132;
       case 'wall_right': return player.x < 132 - (obs.width || 140);
       case 'crate': {
-        const CRATE_HIT_R = 43; // crate half-width (25) + player radius (18)
-        const positions = obs.cratePositions || [{ x: obs.x }];
-        const inCollision = positions.some(cp => Math.abs(player.x - cp.x) < CRATE_HIT_R);
-        // Attack while in collision can be triggered anywhere in the approach window
-        if (inCollision && player.state === 'attacking') return true;
-        // Dodge only counts once the player is actually at the obstacle (not from 500px away)
-        if (!inCollision && player.y >= obs.y - 80) return true;
-        return false;
+        const CRATE_HIT_R = 43;
+        const active = this._getActiveCratePositions(obs);
+        return active.some(cp => Math.abs(player.x - cp.x) < CRATE_HIT_R) && player.state === 'attacking';
       }
       case 'split':
         return player.x < 0 ? player.state === 'jumping' : player.state === 'sliding';
