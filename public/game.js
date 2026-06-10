@@ -945,9 +945,18 @@ socket.on('bomb_hit', () => {
   addNotif('💣 Ralenti par une bombe ! (4s)');
 });
 
+socket.on('crate_destroyed', ({ obsId, crateIndex }) => {
+  const obs = obstacles.find(o => o.id === obsId);
+  if (!obs || !obs.cratePositions) return;
+  obs.cratePositions = obs.cratePositions.filter((_, i) => i !== crateIndex);
+  if (obs.cratePositions.length === 0) {
+    obstacles = obstacles.filter(o => o.id !== obsId);
+  }
+});
+
 socket.on('overtake', (data) => {
   floatingOvertakes.push({ ...data, spawnTime: Date.now() });
-  if (floatingOvertakes.length > 10) floatingOvertakes.shift();
+  if (floatingOvertakes.length > 5) floatingOvertakes.shift();
 });
 
 socket.on('reaction', (data) => {
@@ -1898,6 +1907,8 @@ function drawOvertakeBubbles(interp, myInterp) {
   ctx.font = 'bold 12px Inter, system-ui, sans-serif';
   ctx.textAlign = 'center';
 
+  const renderedSlots = [];
+
   for (const o of floatingOvertakes) {
     const age   = (now - o.spawnTime) / DURATION;
     const alpha = age < 0.65 ? 1 : 1 - (age - 0.65) / 0.35;
@@ -1909,8 +1920,10 @@ function drawOvertakeBubbles(interp, myInterp) {
     const baseY   = o.overtakerId === myPlayerId
       ? PLAYER_RENDER_Y
       : PLAYER_RENDER_Y - ((p.y || 0) - (myInterp.y || 0));
-    // Float upward over lifetime, start above player head
     const bubbleY = baseY - 68 - age * 30;
+
+    if (renderedSlots.some(s => Math.abs(s.y - bubbleY) < 30 && Math.abs(s.x - canvasX) < 80)) continue;
+    renderedSlots.push({ x: canvasX, y: bubbleY });
 
     const tw  = ctx.measureText(o.msg).width;
     const pad = 7;
